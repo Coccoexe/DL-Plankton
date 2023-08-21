@@ -14,12 +14,7 @@ from skimage import data
 # torch
 import torch
 from torch.utils.data import Dataset
-from torchvision.transforms import ToTensor
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
-
-# matplotlib
-import matplotlib.pyplot as plt
 
 def image_preprocessing():
     return
@@ -74,7 +69,6 @@ def main():
         # TODO: preprocessing only on trainig set
         for i in range(len(train[0])):
             train[0][i] = skimage.transform.resize(train[0][i], input_size)   # resize to input_size
-            train[0][i] = ToTensor()(train[0][i])                             # ???: to tensor
 
         # custom dataset
         train_data = PlanktonDataset(train[1], train[0])
