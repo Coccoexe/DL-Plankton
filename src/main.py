@@ -4,6 +4,7 @@
 
 # based
 import os
+from datetime import datetime
 from scipy import io
 import numpy as np
 
@@ -15,12 +16,42 @@ from skimage import data
 import torch
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
+import torchvision.models as models
+from torch.utils.tensorboard import SummaryWriter
 
-def image_preprocessing():
-    return
+DEVICE = (
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu"
+)
+print(f"Using {DEVICE} device")
 
-def training():
-    return
+# TODO: training function
+def train_one_epoch(epoch_index, tb_writer, model, training_loader, loss_fn, optimizer):
+    running_loss = 0.
+    last_loss = 0.
+
+    for i, data in enumerate(training_loader):
+        inputs, labels = data
+
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = loss_fn(outputs, labels)
+        loss.backward()
+        optimizer.step()
+
+        running_loss += loss.item()
+        if i % 100 == 99:
+            last_loss = running_loss / 100
+            running_loss = 0.
+            print(f"Batch {i} - Loss: {last_loss}")
+            tb_x = epoch_index * len(training_loader) + i + 1
+            tb_writer.add_scalar("Loss/train", last_loss, tb_x)
+            running_loss = 0.
+        
+    return last_loss
 
 def main():
     # DATASET
@@ -29,8 +60,8 @@ def main():
         raise Exception('ERROR: Dataset not found. Check the path.')
     mat = np.array(io.loadmat(datapath)['DATA'])[0]
 
-    x = mat[0]                # patterns
-    t = mat[1]                # labels
+    x = mat[0][0]             # patterns
+    t = mat[1][0]             # labels
     folds = mat[2].shape[0]   # number of folds
     shuff = mat[2]            # pre-shuffled indexes ('folds' different permutations)
     div = mat[3][0][0]        # training patterns number
@@ -49,7 +80,7 @@ def main():
             return self.patterns[idx], self.labels[idx]
     
     # ALEXNET
-    model = torch.hub.load('pytorch/vision:v0.10.0', 'alexnet', pretrained = True)
+    model = models.alexnet(pretrained = True).to(DEVICE)
     input_size = np.array([227, 227])
 
     # PARAMETERS
@@ -62,27 +93,31 @@ def main():
     # MAIN LOOP
     for fold in range(folds):
         # dataset
-        train = [(x[i], t[i]) for i in shuff[fold][:div]]   # 0:div pre-shuffled (pattern, label) from fold
-        test = [(x[i], t[i]) for i in shuff[fold][div:]]    # div:tot pre-shuffled (pattern, label) from fold
-        num_classes = max(train[1])                         # number of classes
+        train_pattern , train_label, test_pattern, test_label = [], [], [], []
+        for i in shuff[fold][:div]-1:
+            train_pattern.append(x[i])   # 0:div pre-shuffled pattern from fold
+            train_label.append(t[i])     # 0:div pre-shuffled label from fold
+        for i in shuff[fold][div:]-1:
+            test_pattern.append(x[i])    # div:tot pre-shuffled pattern from fold
+            test_label.append(t[i])      # div:tot pre-shuffled label from fold
+        num_classes = max(train_label)   # number of classes
 
         # TODO: preprocessing only on trainig set
-        for i in range(len(train[0])):
-            train[0][i] = skimage.transform.resize(train[0][i], input_size)   # resize to input_size
+        for i in range(div):
+            train_pattern[i] = skimage.transform.resize(train_pattern[i], input_size)   # resize to input_size
 
         # custom dataset
-        train_data = PlanktonDataset(train[1], train[0])
-        test_data = PlanktonDataset(test[1], test[0])
+        train_data = PlanktonDataset(labels=train_label, patterns=train_pattern)
+        test_data = PlanktonDataset(labels=test_label, patterns=test_pattern)
 
         # dataloader
         train_dataloader = DataLoader(train_data, batch_size = batch_size, shuffle = False)
         test_dataloader = DataLoader(test_data, batch_size = batch_size, shuffle = False)
 
-        # tuning: remove last 3 layers then add FC layer, softmax, classificator
-        model = torch.nn.Sequential(*list(model.children())[:-3])
-        model.add_module('fc', torch.nn.Linear(256, num_classes))
-        model.add_module('softmax', torch.nn.Softmax(dim = 1))
-        model.add_module('classificator', torch.nn.Linear(num_classes, num_classes))
+        # fine-tuning
+        layers = list(model.classifier.children())[:-3]
+        layers.extend([torch.nn.Linear(4096, 4096), torch.nn.Linear(4096, num_classes), torch.nn.Softmax(dim = 1)])
+        model.classifier = torch.nn.Sequential(*layers)
 
         # loss function
         loss_fn = torch.nn.CrossEntropyLoss()
@@ -90,24 +125,18 @@ def main():
         # optimizer
         optimizer = torch.optim.SGD(model.parameters(), lr = lr, momentum = momentum)
 
-        # training
+        # TODO: training
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        writer = SummaryWriter('runs/fashion_trainer_{}'.format(timestamp))
+        epoch_number = 0
         for epoch in range(epochs):
-            running_loss = 0.0
-            last_loss = 0.0
+            model.train(True)
+            avg_loss = train_one_epoch(epoch, writer, model, train_dataloader, loss_fn, optimizer)
+            writer.add_scalar("Loss/train", avg_loss, epoch_number + 1)
+            writer.flush()
+            epoch_number += 1
 
-            for i, (inputs, labels) in enumerate(train_dataloader):
-                optimizer.zero_grad()             # zero the parameter gradients
-                outputs = model(inputs)           # forward pass
-                loss = loss_fn(outputs, labels)   # compute loss
-                loss.backward()                   # backward pass
-                optimizer.step()                  # update weights
 
-                # statistics
-                running_loss += loss.item()
-                if i % iterations == iterations - 1:
-                    last_loss = running_loss / iterations
-                    print(f'Batch {i + 1} - Loss: {last_loss}')
-                    running_loss = 0.0
 
     return
 
@@ -137,51 +166,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-#                                            ████████████████                                        
-#                                ████████░░░░░░░░░░░░░░░░████████                                
-#                            ▓▓██░░░░░░        ░░░░░░      ░░▒▒▒▒▓▓██                            
-#                        ████      ░░░░░░░░░░░░░░  ░░░░░░░░  ░░    ░░▓▓▓▓                        
-#                    ████░░    ░░░░░░░░    ░░░░░░░░░░░░░░░░░░░░░░░░░░  ░░████                    
-#                  ▒▒▒▒░░    ░░░░░░    ░░░░░░░░░░░░░░░░░░░░░░░░░░      ░░░░▒▒▓▓                  
-#                ██      ░░░░░░      ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  ░░██                
-#              ██░░    ░░░░░░    ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██              
-#            ██░░    ░░░░░░    ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  ░░██            
-#          ██░░    ░░░░░░      ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  ░░██          
-#        ██░░    ░░░░░░    ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  ▒▒██        
-#        ██░░  ░░░░░░    ░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒██        
-#      ▓▓░░  ░░░░░░    ░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒  ▒▒▓▓      
-#      ██    ░░░░░░    ░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒  ▒▒██      
-#    ██▒▒  ░░░░░░    ░░░░  ░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒░░▒▒▓▓    
-#    ██    ░░░░░░  ░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒  ▒▒██    
-#  ██░░  ░░░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒  ▒▒▒▒██  
-#  ██░░  ░░░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  ▒▒██  
-#  ██    ░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  ▒▒██  
-#  ██  ░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  ▒▒██  
-#██░░  ░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  ░░██
-#██░░  ░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  ░░██
-#██    ░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░██
-#██    ░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░██
-#██    ░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░██
-#██    ░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░██
-#██    ░░░░░░▒▒▒▒▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▒▒▒▒▒▒▒▒▒▒▓▓▒▒░░░░██
-#  ██  ░░░░▒▒▒▒▒▒▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▒▒▒▒▒▒▒▒▓▓▓▓▒▒░░██  
-#  ██  ░░░░▒▒▒▒▒▒▒▒▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▒▒▒▒▓▓▓▓▓▓▒▒░░██  
-#  ██  ░░░░▒▒▒▒▒▒▒▒▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▒▒▒▒▒▒▓▓▒▒▒▒▓▓▓▓▓▓▒▒▒▒██  
-#  ██    ░░▒▒▒▒▒▒▓▓▒▒▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▒▒▒▒▒▒██  
-#    ██  ░░▒▒░░▒▒▒▒▓▓▓▓▓▓▒▒▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▒▒▒▒▒▒▒▒▒▒▓▓▒▒▓▓▓▓▓▓▒▒░░██    
-#    ██  ░░▒▒░░▒▒▒▒▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▒▒▒▒██    
-#      ██  ▒▒░░▓▓▒▒▒▒▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▒▒░░██      
-#      ██  ░░░░▓▓▒▒▒▒▓▓▓▓▓▓▓▓▒▒▒▒▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓░░▒▒██      
-#        ██  ░░▒▒▓▓▓▓▓▓▓▓▓▓▒▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▒▒▒▒██        
-#        ██  ░░▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▓▓▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▒▒▒▒██        
-#          ██  ░░▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓░░▓▓▓▓▒▒▒▒██          
-#            ██░░░░▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░▓▓▓▓▓▓▒▒██            
-#              ▓▓░░░░▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░▒▒▒▒▒▒░░░░▓▓▓▓▓▓▓▓██              
-#                ██░░░░▒▒▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░▓▓▓▓▓▓▓▓▒▒██                
-#                  ██░░▒▒▒▒▓▓▓▓▓▓▓▓░░░░░░▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░  ▓▓▓▓▓▓▓▓▒▒██                  
-#                  ░░████▒▒▒▒▓▓▓▓▓▓░░░░░░░░░░░░░░░░░░░░░░░░      ▒▒▓▓▓▓▒▒████░░                  
-#                        ████▓▓▒▒▓▓▓▓░░░░                  ▓▓▒▒▒▒▓▓▒▒████                        
-#                            ████▒▒▒▒▓▓▓▓▓▓            ▓▓▓▓▓▓▓▓▒▒████                            
-#                                ████████▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓████████                                
-#                                    ░░  ████████████████                                        
