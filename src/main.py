@@ -93,12 +93,10 @@ def main():
         print('PREPROCESSING DONE')
 
         # to torch.tensor
-        print('\nConverting to torch.tensor...')
         train_pattern = torch.tensor(np.array(train_pattern), dtype = torch.float32)
         train_label = torch.tensor(np.array(train_label), dtype = torch.long)
         test_pattern = torch.tensor(np.array(test_pattern), dtype = torch.float32)
         test_label = torch.tensor(np.array(test_label), dtype = torch.long)
-        print('CONVERSION DONE')
 
         # custom dataset
         train_data = PlanktonDataset(labels=train_label, patterns=train_pattern)
