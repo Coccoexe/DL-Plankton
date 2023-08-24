@@ -83,16 +83,15 @@ def main():
         print(f'Testing patterns: {len(test_pattern)}')
         print(f'Number of classes: {num_classes}')
 
-        # TODO: preprocessing only on trainig set
+        # TODO: preprocessing
         print('\nPreprocessing...')
         for i in range(div):
-            train_pattern[i] = skimage.transform.resize(train_pattern[i], input_size)   # resize to input_size
-        # test set
+            train_pattern[i] = skimage.transform.resize(train_pattern[i], input_size)
         for i in range(tot-div):
             test_pattern[i] = skimage.transform.resize(test_pattern[i], input_size)
         print('PREPROCESSING DONE')
 
-        # to torch.tensor
+        # tensor
         train_pattern = torch.tensor(np.array(train_pattern), dtype = torch.float32)
         train_label = torch.tensor(np.array(train_label), dtype = torch.long)
         test_pattern = torch.tensor(np.array(test_pattern), dtype = torch.float32)
