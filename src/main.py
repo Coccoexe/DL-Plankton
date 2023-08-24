@@ -98,8 +98,8 @@ def main():
         test_label = torch.tensor(np.array(test_label), dtype = torch.long)
 
         # custom dataset
-        train_data = PlanktonDataset(labels=train_label, patterns=train_pattern)
-        test_data = PlanktonDataset(labels=test_label, patterns=test_pattern)
+        train_data = PlanktonDataset(labels = train_label, patterns = train_pattern)
+        test_data = PlanktonDataset(labels = test_label, patterns = test_pattern)
 
         # dataloader
         train_dataloader = DataLoader(train_data, batch_size = batch_size, shuffle = False)
