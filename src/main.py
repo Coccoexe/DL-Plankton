@@ -28,31 +28,6 @@ DEVICE = (
 )
 print(f"Using {DEVICE} device")
 
-# TODO: training function
-def train_one_epoch(epoch_index, tb_writer, model, training_loader, loss_fn, optimizer):
-    running_loss = 0.
-    last_loss = 0.
-
-    for i, data in enumerate(training_loader):
-        inputs, labels = data
-
-        optimizer.zero_grad()
-        outputs = model(inputs)
-        loss = loss_fn(outputs, labels)
-        loss.backward()
-        optimizer.step()
-
-        running_loss += loss.item()
-        if i % 100 == 99:
-            last_loss = running_loss / 100
-            running_loss = 0.
-            print(f"Batch {i} - Loss: {last_loss}")
-            tb_x = epoch_index * len(training_loader) + i + 1
-            tb_writer.add_scalar("Loss/train", last_loss, tb_x)
-            running_loss = 0.
-        
-    return last_loss
-
 def main():
     # DATASET
     datapath = 'dataset/Datas_44.mat'
@@ -80,7 +55,9 @@ def main():
             return self.patterns[idx], self.labels[idx]
     
     # ALEXNET
+    print('Loading AlexNet...')
     model = models.alexnet(pretrained = True).to(DEVICE)
+    print('LOADING DONE')
     input_size = np.array([227, 227])
 
     # PARAMETERS
@@ -92,6 +69,7 @@ def main():
 
     # MAIN LOOP
     for fold in range(folds):
+        print(f'\n### Fold {fold+1}/{folds} ###')
         # dataset
         train_pattern , train_label, test_pattern, test_label = [], [], [], []
         for i in shuff[fold][:div]-1:
@@ -101,10 +79,26 @@ def main():
             test_pattern.append(x[i])    # div:tot pre-shuffled pattern from fold
             test_label.append(t[i])      # div:tot pre-shuffled label from fold
         num_classes = max(train_label)   # number of classes
+        print(f'Training patterns: {len(train_pattern)}')
+        print(f'Testing patterns: {len(test_pattern)}')
+        print(f'Number of classes: {num_classes}')
 
         # TODO: preprocessing only on trainig set
+        print('\nPreprocessing...')
         for i in range(div):
             train_pattern[i] = skimage.transform.resize(train_pattern[i], input_size)   # resize to input_size
+        # test set
+        for i in range(tot-div):
+            test_pattern[i] = skimage.transform.resize(test_pattern[i], input_size)
+        print('PREPROCESSING DONE')
+
+        # to torch.tensor
+        print('\nConverting to torch.tensor...')
+        train_pattern = torch.tensor(np.array(train_pattern), dtype = torch.float32)
+        train_label = torch.tensor(np.array(train_label), dtype = torch.long)
+        test_pattern = torch.tensor(np.array(test_pattern), dtype = torch.float32)
+        test_label = torch.tensor(np.array(test_label), dtype = torch.long)
+        print('CONVERSION DONE')
 
         # custom dataset
         train_data = PlanktonDataset(labels=train_label, patterns=train_pattern)
@@ -126,18 +120,54 @@ def main():
         optimizer = torch.optim.SGD(model.parameters(), lr = lr, momentum = momentum)
 
         # TODO: training
+        print('\nTraining...')
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         writer = SummaryWriter('runs/fashion_trainer_{}'.format(timestamp))
-        epoch_number = 0
+        model.train()
         for epoch in range(epochs):
-            model.train(True)
-            avg_loss = train_one_epoch(epoch, writer, model, train_dataloader, loss_fn, optimizer)
-            writer.add_scalar("Loss/train", avg_loss, epoch_number + 1)
-            writer.flush()
-            epoch_number += 1
+            avg_loss = 0.
+            for i, data in enumerate(train_dataloader):
+                # data
+                inputs, labels = data
+                inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
 
+                # training
+                optimizer.zero_grad()
+                outputs = model(inputs)
+                loss = loss_fn(outputs, labels)
+                loss.backward()
+                optimizer.step()
 
+                # logging
+                avg_loss += loss.item()
+                if i % 100 == 99:
+                    print(f"Batch {i} - Loss: {avg_loss / 100}")
+                    writer.add_scalar("Loss/train", avg_loss / 100, epoch * len(train_dataloader) + i + 1)
+                    avg_loss = 0.
+        print('TRAINING DONE')
 
+        # TODO: testing
+        print('\nTesting...')
+        model.eval()
+        with torch.no_grad():
+            correct = 0
+            total = 0
+            for data in test_dataloader:
+                # data
+                inputs, labels = data
+                inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+
+                # testing
+                outputs = model(inputs)
+                _, predicted = torch.max(outputs.data, 1)
+
+                # logging
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+
+            print(f"Accuracy: {100 * correct / total}")
+            writer.add_scalar("Accuracy/test", 100 * correct / total, epoch * len(train_dataloader) + i + 1)
+        print('TESTING DONE')
     return
 
 #                      __gggrgM**M#mggg__
@@ -166,3 +196,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+# how do i fix above RuntimeError: Input type (double) and bias type (float) should be the same?
+# https://stackoverflow.com/questions/63582590/how-do-i-fix-above-runtimeerror-input-type-double-and-bias-type-float-should
+# https://discuss.pytorch.org/t/runtimeerror-input-type-double-and-weight-type-float-should-be-the-same/38676/2
