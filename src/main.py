@@ -165,6 +165,15 @@ def main():
             print(f"Accuracy: {100 * correct / total}")
             writer.add_scalar("Accuracy/test", 100 * correct / total, epoch * len(train_dataloader) + i + 1)
         print('TESTING DONE')
+
+    # save model
+    print('\nSaving model...')
+    torch.save(model.state_dict(), 'output/model.pth')
+    print('MODEL SAVED')
+
+    # TODO: statistics
+
+
     return
 
 #                      __gggrgM**M#mggg__
