@@ -60,9 +60,9 @@ def main():
     print('Loading AlexNet...')
     model = models.alexnet(pretrained = True)
     print('LOADING DONE')
-    input_size = np.array([227, 227])
 
     # PARAMETERS
+    input_size = np.array([227, 227])
     batch_size = 32
     lr = 1e-4
     epochs = 30
@@ -71,13 +71,13 @@ def main():
 
     # MAIN LOOP
     for fold in range(folds):
-        print(f'\n### Fold {fold+1}/{folds} ###')
+        print(f'\n### Fold {fold + 1}/{folds} ###')
         # dataset
         train_pattern , train_label, test_pattern, test_label = [], [], [], []
-        for i in shuff[fold][:div]-1:
+        for i in shuff[fold][:div] - 1:
             train_pattern.append(x[i])   # 0:div pre-shuffled pattern from fold
             train_label.append(t[i])     # 0:div pre-shuffled label from fold
-        for i in shuff[fold][div:]-1:
+        for i in shuff[fold][div:] - 1:
             test_pattern.append(x[i])    # div:tot pre-shuffled pattern from fold
             test_label.append(t[i])      # div:tot pre-shuffled label from fold
         num_classes = max(train_label)   # number of classes
