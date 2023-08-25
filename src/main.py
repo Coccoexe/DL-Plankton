@@ -3,21 +3,19 @@
 # UniPD 2022/23 - Deep Learning Project
 
 # based
-import os
-from datetime import datetime
-from scipy import io
-import numpy as np
-
-# scikit-image
-import skimage
-from skimage import data
+import os              # paths
+from scipy import io   # MATLAB files
+import numpy as np     # arrays
+from tqdm import tqdm  # progress bar
 
 # torch
 import torch
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
-import torchvision.models as models
-from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import Dataset                # custom dataset
+from torch.utils.data import DataLoader             # dataloader for batches
+import torchvision.models as models                 # AlexNet
+from torchvision import transforms                  # transforms
+from PIL import Image                               # images for transforms
+from torch.utils.tensorboard import SummaryWriter   # logging
 
 def main():
     # DEVICE
@@ -28,27 +26,27 @@ def main():
         if torch.backends.mps.is_available()
         else "cpu"
     )
-    torch.set_default_device(DEVICE)
     print(f"Using {DEVICE} device")
 
     # CUSTOM DATASET
     class PlanktonDataset(Dataset):
-        def __init__(self, labels, patterns, ytransform = None, xtransform = None):
-            self.labels = labels
-            self.patterns = patterns
+        def __init__(self, labels, patterns, transform):
+            self.labels = torch.tensor(labels, dtype = torch.long)   # labels -> tensor (long)
+            self.patterns = patterns                                 # images
+            self.transform = transform                               # transforms
 
         def __len__(self):
             return len(self.patterns)
 
         def __getitem__(self, idx):
-            return self.patterns[idx], self.labels[idx]
-
+            return self.transform(self.patterns[idx]), self.labels[idx] - 1
+        
     # DATASET
     datapath = 'dataset/Datas_44.mat'
     if not os.path.exists(datapath):
         raise Exception('ERROR: Dataset not found. Check the path.')
+    
     mat = np.array(io.loadmat(datapath)['DATA'])[0]
-
     x = mat[0][0]             # patterns
     t = mat[1][0]             # labels
     folds = mat[2].shape[0]   # number of folds
@@ -62,58 +60,43 @@ def main():
     print('LOADING DONE')
 
     # PARAMETERS
-    input_size = np.array([227, 227])
+    input_size = (227, 227)
     batch_size = 32
     lr = 1e-4
-    epochs = 30
+    epochs = 50
     momentum = 0.9
     iterations = div // batch_size
 
     # MAIN LOOP
-    for fold in range(folds):
+    for fold in range(folds):   # for each fold
         print(f'\n### Fold {fold + 1}/{folds} ###')
+
         # dataset
         train_pattern , train_label, test_pattern, test_label = [], [], [], []
         for i in shuff[fold][:div] - 1:
-            train_pattern.append(x[i])   # 0:div pre-shuffled pattern from fold
-            train_label.append(t[i])     # 0:div pre-shuffled label from fold
+            train_pattern.append(Image.fromarray(x[i]))   # 0:div pre-shuffled pattern from fold
+            train_label.append(t[i])                      # 0:div pre-shuffled label from fold
         for i in shuff[fold][div:] - 1:
-            test_pattern.append(x[i])    # div:tot pre-shuffled pattern from fold
-            test_label.append(t[i])      # div:tot pre-shuffled label from fold
-        num_classes = max(train_label)   # number of classes
+            test_pattern.append(Image.fromarray(x[i]))    # div:tot pre-shuffled pattern from fold
+            test_label.append(t[i])                       # div:tot pre-shuffled label from fold
+        num_classes = max(train_label)                    # number of classes
         print(f'Training patterns: {len(train_pattern)}')
         print(f'Testing patterns: {len(test_pattern)}')
         print(f'Number of classes: {num_classes}')
 
-        # TODO: preprocessing
-        print('\nPreprocessing...')
-        for i in range(div):
-            # labels - 1 to start from 0
-            train_label[i] -= 1
-            # resize to input_size
-            train_pattern[i] = skimage.transform.resize(train_pattern[i], input_size)
-        for i in range(tot-div):
-            # labels - 1 to start from 0
-            test_label[i] -= 1
-            # resize to input_size
-            test_pattern[i] = skimage.transform.resize(test_pattern[i], input_size)
-        print('PREPROCESSING DONE')
-
-        # (height, width, channels) -> (channels, height, width)
-        for i in range(div):
-            train_pattern[i] = np.transpose(train_pattern[i], (2, 0, 1))
-        for i in range(tot-div):
-            test_pattern[i] = np.transpose(test_pattern[i], (2, 0, 1))
-
-        # tensor
-        train_pattern = torch.tensor(np.array(train_pattern), dtype = torch.float32)
-        train_label = torch.tensor(np.array(train_label), dtype = torch.long)
-        test_pattern = torch.tensor(np.array(test_pattern), dtype = torch.float32)
-        test_label = torch.tensor(np.array(test_label), dtype = torch.long)
+        # transforms
+        train_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Resize(input_size, antialias = True)
+        ])
+        test_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Resize(input_size, antialias = True)
+        ])
 
         # custom dataset
-        train_data = PlanktonDataset(labels = train_label, patterns = train_pattern)
-        test_data = PlanktonDataset(labels = test_label, patterns = test_pattern)
+        train_data = PlanktonDataset(labels = train_label, patterns = train_pattern, transform = train_transform)
+        test_data = PlanktonDataset(labels = test_label, patterns = test_pattern, transform = test_transform)
 
         # dataloader
         train_dataloader = DataLoader(train_data, batch_size = batch_size, shuffle = False)
@@ -123,7 +106,7 @@ def main():
         layers = list(model.classifier.children())[:-3]
         layers.extend([torch.nn.Linear(4096, 4096), torch.nn.Linear(4096, num_classes), torch.nn.Softmax(dim = 1)])
         model.classifier = torch.nn.Sequential(*layers)
-        model = model.to(DEVICE)
+        model = model.to(DEVICE)   # GPU computing, if available
 
         # loss function
         loss_fn = torch.nn.CrossEntropyLoss()
@@ -131,33 +114,31 @@ def main():
         # optimizer
         optimizer = torch.optim.SGD(model.parameters(), lr = lr, momentum = momentum)
 
-        # TODO: training
+        # training
         print('\nTraining...')
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        writer = SummaryWriter('runs/fashion_trainer_{}'.format(timestamp))
         model.train()
-        for epoch in range(epochs):
-            avg_loss = 0.
-            for i, data in enumerate(train_dataloader):
-                # data
-                inputs, labels = data
+        writer = SummaryWriter('runs/plankton_' + str(fold))
 
-                # training
-                optimizer.zero_grad()
-                outputs = model(inputs)
-                loss = loss_fn(outputs, labels)
-                loss.backward()
-                optimizer.step()
+        with tqdm(total = epochs) as pbar:   # progress bar
+            for epoch in range(epochs):      # for each epoch
+                for i, data in enumerate(train_dataloader):
+                    # data (GPU computing, if available)
+                    inputs, labels = data[0].to(DEVICE), data[1].to(DEVICE)
 
-                # logging
-                avg_loss += loss.item()
-                if i % 100 == 99:
-                    print(f"Batch {i} - Loss: {avg_loss / 100}")
-                    writer.add_scalar("Loss/train", avg_loss / 100, epoch * len(train_dataloader) + i + 1)
-                    avg_loss = 0.
+                    # training
+                    optimizer.zero_grad()             # zero the gradients
+                    outputs = model(inputs)           # forward pass
+                    loss = loss_fn(outputs, labels)   # loss
+                    loss.backward()                   # backward pass
+                    optimizer.step()                  # update weights
+
+                    # logging
+                    writer.add_scalar("Loss/train", loss.item(), epoch * iterations + i)
+                pbar.update(1)   # update progress bar
+        writer.flush()
         print('TRAINING DONE')
 
-        # TODO: testing
+        # testing
         print('\nTesting...')
         model.eval()
         with torch.no_grad():
@@ -165,7 +146,7 @@ def main():
             total = 0
             for data in test_dataloader:
                 # data
-                inputs, labels = data
+                inputs, labels = data[0].to(DEVICE), data[1].to(DEVICE)
 
                 # testing
                 outputs = model(inputs)
@@ -176,7 +157,6 @@ def main():
                 correct += (predicted == labels).sum().item()
 
             print(f"Accuracy: {100 * correct / total}")
-            writer.add_scalar("Accuracy/test", 100 * correct / total, epoch * len(train_dataloader) + i + 1)
         print('TESTING DONE')
 
     # save model
@@ -185,7 +165,8 @@ def main():
     print('MODEL SAVED')
 
     # TODO: statistics
-
+    print('\nComputing statistics...')
+    print('STATISTICS DONE')
 
     return
 
