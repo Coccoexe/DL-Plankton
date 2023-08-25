@@ -19,16 +19,30 @@ from torch.utils.data import DataLoader
 import torchvision.models as models
 from torch.utils.tensorboard import SummaryWriter
 
-DEVICE = (
-    "cuda"
-    if torch.cuda.is_available()
-    else "mps"
-    if torch.backends.mps.is_available()
-    else "cpu"
-)
-print(f"Using {DEVICE} device")
-
 def main():
+    # DEVICE
+    DEVICE = (
+        "cuda"
+        if torch.cuda.is_available()
+        else "mps"
+        if torch.backends.mps.is_available()
+        else "cpu"
+    )
+    torch.set_default_device(DEVICE)
+    print(f"Using {DEVICE} device")
+
+    # CUSTOM DATASET
+    class PlanktonDataset(Dataset):
+        def __init__(self, labels, patterns, ytransform = None, xtransform = None):
+            self.labels = labels
+            self.patterns = patterns
+
+        def __len__(self):
+            return len(self.patterns)
+
+        def __getitem__(self, idx):
+            return self.patterns[idx], self.labels[idx]
+
     # DATASET
     datapath = 'dataset/Datas_44.mat'
     if not os.path.exists(datapath):
@@ -41,18 +55,6 @@ def main():
     shuff = mat[2]            # pre-shuffled indexes ('folds' different permutations)
     div = mat[3][0][0]        # training patterns number
     tot = mat[4][0][0]        # UNUSED: total patterns number
-
-    # CLASSES
-    class PlanktonDataset(Dataset):
-        def __init__(self, labels, patterns, transform = None, target_transform = None):
-            self.labels = labels
-            self.patterns = patterns
-
-        def __len__(self):
-            return len(self.patterns)
-
-        def __getitem__(self, idx):
-            return self.patterns[idx], self.labels[idx]
     
     # ALEXNET
     print('Loading AlexNet...')
@@ -138,7 +140,7 @@ def main():
             avg_loss = 0.
             for i, data in enumerate(train_dataloader):
                 # data
-                inputs, labels = data[0].to(DEVICE), data[1].to(DEVICE)
+                inputs, labels = data
 
                 # training
                 optimizer.zero_grad()
@@ -164,7 +166,6 @@ def main():
             for data in test_dataloader:
                 # data
                 inputs, labels = data
-                #inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
 
                 # testing
                 outputs = model(inputs)
