@@ -64,7 +64,7 @@ def main():
     input_size = (227, 227)
     batch_size = 32
     lr = 1e-4
-    epochs = 50
+    epochs = 40
     momentum = 0.9
     iterations = div // batch_size
 
