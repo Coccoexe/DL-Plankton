@@ -56,7 +56,7 @@ def main():
     
     # ALEXNET
     print('Loading AlexNet...')
-    model = models.alexnet(pretrained = True).to(DEVICE)
+    model = models.alexnet(pretrained = True)
     print('LOADING DONE')
     input_size = np.array([227, 227])
 
@@ -86,10 +86,22 @@ def main():
         # TODO: preprocessing
         print('\nPreprocessing...')
         for i in range(div):
+            # labels - 1 to start from 0
+            train_label[i] -= 1
+            # resize to input_size
             train_pattern[i] = skimage.transform.resize(train_pattern[i], input_size)
         for i in range(tot-div):
+            # labels - 1 to start from 0
+            test_label[i] -= 1
+            # resize to input_size
             test_pattern[i] = skimage.transform.resize(test_pattern[i], input_size)
         print('PREPROCESSING DONE')
+
+        # (height, width, channels) -> (channels, height, width)
+        for i in range(div):
+            train_pattern[i] = np.transpose(train_pattern[i], (2, 0, 1))
+        for i in range(tot-div):
+            test_pattern[i] = np.transpose(test_pattern[i], (2, 0, 1))
 
         # tensor
         train_pattern = torch.tensor(np.array(train_pattern), dtype = torch.float32)
@@ -109,6 +121,7 @@ def main():
         layers = list(model.classifier.children())[:-3]
         layers.extend([torch.nn.Linear(4096, 4096), torch.nn.Linear(4096, num_classes), torch.nn.Softmax(dim = 1)])
         model.classifier = torch.nn.Sequential(*layers)
+        model = model.to(DEVICE)
 
         # loss function
         loss_fn = torch.nn.CrossEntropyLoss()
@@ -125,8 +138,7 @@ def main():
             avg_loss = 0.
             for i, data in enumerate(train_dataloader):
                 # data
-                inputs, labels = data
-                inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+                inputs, labels = data[0].to(DEVICE), data[1].to(DEVICE)
 
                 # training
                 optimizer.zero_grad()
@@ -152,7 +164,7 @@ def main():
             for data in test_dataloader:
                 # data
                 inputs, labels = data
-                inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+                #inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
 
                 # testing
                 outputs = model(inputs)
@@ -202,7 +214,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-# how do i fix above RuntimeError: Input type (double) and bias type (float) should be the same?
-# https://stackoverflow.com/questions/63582590/how-do-i-fix-above-runtimeerror-input-type-double-and-bias-type-float-should
-# https://discuss.pytorch.org/t/runtimeerror-input-type-double-and-weight-type-float-should-be-the-same/38676/2
