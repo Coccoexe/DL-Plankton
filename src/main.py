@@ -3,10 +3,11 @@
 # UniPD 2022/23 - Deep Learning Project
 
 # based
-import os              # paths
-from scipy import io   # MATLAB files
-import numpy as np     # arrays
-from tqdm import tqdm  # progress bar
+import os                       # paths
+from scipy import io            # MATLAB files
+import numpy as np              # arrays
+from datetime import datetime   # time
+from tqdm import tqdm           # progress bar
 
 # torch
 import torch
@@ -117,10 +118,10 @@ def main():
         # training
         print('\nTraining...')
         model.train()
-        writer = SummaryWriter('runs/plankton_' + str(fold))
+        writer = SummaryWriter('runs/plankton_AGE-{}_FOLD-{}'.format(datetime.now().strftime("%Y%m%d.%H%M%S"), fold + 1))
 
-        with tqdm(total = epochs) as pbar:   # progress bar
-            for epoch in range(epochs):      # for each epoch
+        with tqdm(total = epochs, unit = 'epoch') as pbar:   # progress bar
+            for epoch in range(epochs):                      # for each epoch
                 for i, data in enumerate(train_dataloader):
                     # data (GPU computing, if available)
                     inputs, labels = data[0].to(DEVICE), data[1].to(DEVICE)
