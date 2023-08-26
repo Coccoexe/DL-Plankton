@@ -64,12 +64,13 @@ def main():
     print('LOADING DONE')
 
     # PARAMETERS
-    input_size = (227, 227)
-    batch_size = 32
-    lr = 1e-4
-    epochs = 30
-    momentum = 0.9
-    iterations = div // batch_size
+    input_size = (227, 227)          # image size
+    batch_size = 32                  # batch size
+    lr = 1e-4                        # learning rate
+    factor = 20                      # learning rate factor for tuning
+    epochs = 30                      # fixed number of epochs
+    momentum = 0.9                   # momentum
+    iterations = div // batch_size   # iterations per epoch
 
     # MAIN LOOP
     for fold in range(folds):   # for each fold
@@ -121,7 +122,7 @@ def main():
             {'params': model.features.parameters()},
             {'params': model.avgpool.parameters()},
             {'params': model.classifier.parameters()},
-            {'params': model.tuning.parameters(), 'lr': lr * 20}
+            {'params': model.tuning.parameters(), 'lr': lr * factor}
         ], lr = lr, momentum = momentum)
 
         # training
