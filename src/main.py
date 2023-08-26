@@ -91,7 +91,9 @@ def main():
         # transforms
         train_transform = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Resize(input_size, antialias = True)
+            transforms.Resize(input_size, antialias = True),
+            #transforms.RandomHorizontalFlip(),
+            #transforms.RandomAffine(degrees = 0, scale = (1, 2)),
         ])
         test_transform = transforms.Compose([
             transforms.ToTensor(),
