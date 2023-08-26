@@ -58,6 +58,9 @@ def main():
     # ALEXNET
     print('Loading AlexNet...')
     model = models.alexnet(pretrained = True)
+    # prepare model
+    layers = list(model.classifier.children())[:-1]
+    model.classifier = torch.nn.Sequential(*layers)
     print('LOADING DONE')
 
     # PARAMETERS
@@ -103,17 +106,23 @@ def main():
         train_dataloader = DataLoader(train_data, batch_size = batch_size, shuffle = False)
         test_dataloader = DataLoader(test_data, batch_size = batch_size, shuffle = False)
 
-        # fine-tuning
-        layers = list(model.classifier.children())[:-3]
-        layers.extend([torch.nn.Linear(4096, 4096), torch.nn.Linear(4096, num_classes), torch.nn.Softmax(dim = 1)])
-        model.classifier = torch.nn.Sequential(*layers)
+        # tuning
+        model.tuning = torch.nn.Sequential(
+            torch.nn.Linear(4096, num_classes, bias = True),
+            torch.nn.Softmax(dim = 1)
+        )
         model = model.to(DEVICE)   # GPU computing, if available
 
         # loss function
         loss_fn = torch.nn.CrossEntropyLoss()
 
         # optimizer
-        optimizer = torch.optim.SGD(model.parameters(), lr = lr, momentum = momentum)
+        optimizer = torch.optim.SGD([
+            {'params': model.features.parameters()},
+            {'params': model.avgpool.parameters()},
+            {'params': model.classifier.parameters()},
+            {'params': model.tuning.parameters(), 'lr': lr * 20}
+        ], lr = lr, momentum = momentum)
 
         # training
         print('\nTraining...')
