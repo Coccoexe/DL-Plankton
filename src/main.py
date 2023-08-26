@@ -67,7 +67,7 @@ def main():
     batch_size = 32                  # batch size
     lr = 1e-4                        # learning rate
     factor = 20                      # learning rate factor for tuning
-    epochs = 30                      # fixed number of epochs
+    epochs = 50                      # fixed number of epochs
     momentum = 0.9                   # momentum
     iterations = div // batch_size   # iterations per epoch
 
