@@ -11,12 +11,13 @@ from tqdm import tqdm           # progress bar
 
 # torch
 import torch
-from torch.utils.data import Dataset                # custom dataset
-from torch.utils.data import DataLoader             # dataloader for batches
-import torchvision.models as models                 # AlexNet
-from torchvision import transforms                  # transforms
-from PIL import Image                               # images for transforms
-from torch.utils.tensorboard import SummaryWriter   # logging
+from torch.utils.data import Dataset                     # custom dataset
+from torch.utils.data import DataLoader                  # dataloader for batches
+import torchvision.models as models                      # AlexNet
+from torchvision.models.alexnet import AlexNet_Weights   # AlexNet weights
+from torchvision.transforms import v2                    # transforms
+from PIL import Image                                    # images for transforms
+from torch.utils.tensorboard import SummaryWriter        # logging
 
 def main():
     # DEVICE
@@ -27,6 +28,7 @@ def main():
         if torch.backends.mps.is_available()
         else "cpu"
     )
+    torch.set_default_device(DEVICE)
     print(f"Using {DEVICE} device")
 
     # CUSTOM DATASET
@@ -57,7 +59,7 @@ def main():
     
     # ALEXNET
     print('Loading AlexNet...')
-    model = models.alexnet(pretrained = True)
+    model = models.alexnet(weights = AlexNet_Weights.DEFAULT)
     layers = list(model.classifier.children())[:-1]
     model.classifier = torch.nn.Sequential(*layers)
     print('LOADING DONE')
@@ -89,15 +91,16 @@ def main():
         print(f'Number of classes: {num_classes}')
 
         # transforms
-        train_transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Resize(input_size, antialias = True),
-            #transforms.RandomHorizontalFlip(),
-            #transforms.RandomAffine(degrees = 0, scale = (1, 2)),
+        train_transform = v2.Compose([
+            v2.ToImage(),
+            v2.ToDtype(torch.float32, scale = True),
+            v2.Resize(input_size, antialias = True),
+            v2.GaussianBlur(7, sigma = (0.1, 2.0))
         ])
-        test_transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Resize(input_size, antialias = True)
+        test_transform = v2.Compose([
+            v2.ToImage(),
+            v2.ToDtype(torch.float32, scale = True),
+            v2.Resize(input_size, antialias = True)
         ])
 
         # custom dataset
