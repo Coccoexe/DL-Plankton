@@ -58,7 +58,6 @@ def main():
     # ALEXNET
     print('Loading AlexNet...')
     model = models.alexnet(pretrained = True)
-    # prepare model
     layers = list(model.classifier.children())[:-1]
     model.classifier = torch.nn.Sequential(*layers)
     print('LOADING DONE')
