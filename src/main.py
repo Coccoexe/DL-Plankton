@@ -19,18 +19,39 @@ from torchvision.transforms import v2                    # transforms
 from PIL import Image                                    # images for transforms
 from torch.utils.tensorboard import SummaryWriter        # logging
 
-def main():
-    # DEVICE
-    DEVICE = (
-        "cuda"
-        if torch.cuda.is_available()
-        else "mps"
-        if torch.backends.mps.is_available()
-        else "cpu"
-    )
-    torch.set_default_device(DEVICE)
-    print(f"Using {DEVICE} device")
+DEBUG = False   # debug mode (show only image transforms)
+DEVICE = (
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu"
+)
+torch.set_default_device(DEVICE)
+print(f"Using {DEVICE} device")
 
+def debug():
+    import torchvision.utils
+    x = np.array(io.loadmat('dataset/Datas_44.mat')['DATA'])[0][0][0]
+    base = v2.Compose([
+        v2.ToImage(),
+        v2.ToDtype(torch.float32, scale = True),
+        v2.Resize((227, 227), antialias = True),
+    ])
+    transform = v2.Compose([
+        v2.GaussianBlur(5, sigma = (0.1, 2.0)),
+        v2.RandomAdjustSharpness(1.5, 1),
+        v2.RandomAutocontrast(1),
+        v2.ToPILImage()
+    ])
+
+    for i in range(1):
+        img = transform(base(Image.fromarray(x[i])))
+        img.show()
+
+    return
+
+def main():
     # CUSTOM DATASET
     class PlanktonDataset(Dataset):
         def __init__(self, labels, patterns, transform):
@@ -91,21 +112,18 @@ def main():
         print(f'Number of classes: {num_classes}')
 
         # transforms
-        train_transform = v2.Compose([
+        data_transform = v2.Compose([
             v2.ToImage(),
             v2.ToDtype(torch.float32, scale = True),
             v2.Resize(input_size, antialias = True),
-            v2.GaussianBlur(7, sigma = (0.1, 2.0))
-        ])
-        test_transform = v2.Compose([
-            v2.ToImage(),
-            v2.ToDtype(torch.float32, scale = True),
-            v2.Resize(input_size, antialias = True)
+            #v2.GaussianBlur(5, sigma = (0.1, 2.0)),
+            #v2.RandomAdjustSharpness(1.5, 1),
+            #v2.RandomAutocontrast(1)
         ])
 
         # custom dataset
-        train_data = PlanktonDataset(labels = train_label, patterns = train_pattern, transform = train_transform)
-        test_data = PlanktonDataset(labels = test_label, patterns = test_pattern, transform = test_transform)
+        train_data = PlanktonDataset(labels = train_label, patterns = train_pattern, transform = data_transform)
+        test_data = PlanktonDataset(labels = test_label, patterns = test_pattern, transform = data_transform)
 
         # dataloader
         train_dataloader = DataLoader(train_data, batch_size = batch_size, shuffle = False)
@@ -186,4 +204,4 @@ def main():
     return
 
 if __name__ == '__main__':
-    main()
+    main() if not DEBUG else debug()
