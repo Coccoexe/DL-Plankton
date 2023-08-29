@@ -19,7 +19,7 @@ from torchvision.transforms import v2                    # transforms
 from PIL import Image                                    # images for transforms
 from torch.utils.tensorboard import SummaryWriter        # logging
 
-DEBUG = False   # debug mode (show only image transforms)
+DEBUG = True   # debug mode (show only image transforms)
 DEVICE = (
     "cuda"
     if torch.cuda.is_available()
@@ -45,9 +45,23 @@ def debug():
         v2.ToPILImage()
     ])
 
-    for i in range(1):
+    for i in range(4):
         img = transform(base(Image.fromarray(x[i])))
-        img.show()
+        #img.show()
+
+        import cv2
+        img = np.array(img)
+
+
+        img = cv2.bilateralFilter(img, 9, 75, 75)               #bilateral
+        kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])  #sharpen
+        img = cv2.filter2D(img, -1, kernel)
+        img = cv2.convertScaleAbs(img, alpha=1.5, beta=0)       #contrast
+        img = cv2.Canny(img, 40, 120)                           #canny
+
+        cv2.imshow('image', img)
+        cv2.waitKey(0)
+        
 
     return
 
@@ -194,6 +208,7 @@ def main():
 
     # save model
     print('\nSaving model...')
+    if not os.path.exists('output'): os.makedirs('output')
     torch.save(model.state_dict(), 'output/model.pth')
     print('MODEL SAVED')
 
