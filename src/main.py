@@ -19,7 +19,10 @@ from torchvision.transforms import v2                    # transforms
 from PIL import Image                                    # images for transforms
 from torch.utils.tensorboard import SummaryWriter        # logging
 
-DEBUG = True   # debug mode (show only image transforms)
+# scikit-image
+import skimage, skimage.io, skimage.transform, skimage.restoration, skimage.filters, skimage.exposure, skimage.color, skimage.feature
+
+DEBUG = 0
 DEVICE = (
     "cuda"
     if torch.cuda.is_available()
@@ -30,40 +33,62 @@ DEVICE = (
 torch.set_default_device(DEVICE)
 print(f"Using {DEVICE} device")
 
-def debug():
-    import torchvision.utils
-    x = np.array(io.loadmat('dataset/Datas_44.mat')['DATA'])[0][0][0]
-    base = v2.Compose([
-        v2.ToImage(),
-        v2.ToDtype(torch.float32, scale = True),
-        v2.Resize((227, 227), antialias = True),
-    ])
-    transform = v2.Compose([
-        v2.GaussianBlur(5, sigma = (0.1, 2.0)),
-        v2.RandomAdjustSharpness(1.5, 1),
-        v2.RandomAutocontrast(1),
-        v2.ToPILImage()
-    ])
+def test_global_features():
+    """Image pre-processing, to extract plankton's shape and setae information."""
 
-    for i in range(4):
-        img = transform(base(Image.fromarray(x[i])))
-        #img.show()
+    import skimage
+    print("### TEST GLOBAL FEATURES ###")
+    x = io.loadmat('dataset/Datas_44.mat')['DATA'][0][0][0]
 
-        import cv2
-        img = np.array(img)
+    for i in range(5):
+        # RESIZE: 227x227
+        import skimage.transform
+        x[i] = skimage.transform.resize(x[i], (227, 227), anti_aliasing = True)
 
+        # PRE-PROCESSING: denoising, sobel, histogram equalization, intensity rescaling
+        import skimage.restoration, skimage.filters, skimage.exposure
+        x[i] = skimage.restoration.denoise_bilateral(x[i], sigma_color = 0.05, sigma_spatial = 2, channel_axis = -1)
+        x[i] = skimage.filters.sobel(x[i])
+        x[i] = skimage.exposure.equalize_hist(x[i])
+        p2, p98 = np.percentile(x[i], (2, 98))
+        x[i] = skimage.exposure.rescale_intensity(x[i], in_range = (p2, p98))
 
-        img = cv2.bilateralFilter(img, 9, 75, 75)               #bilateral
-        kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])  #sharpen
-        img = cv2.filter2D(img, -1, kernel)
-        img = cv2.convertScaleAbs(img, alpha=1.5, beta=0)       #contrast
-        img = cv2.Canny(img, 40, 120)                           #canny
-
-        cv2.imshow('image', img)
-        cv2.waitKey(0)
-        
+        import skimage.io
+        skimage.io.imshow(x[i])
+        skimage.io.show()
 
     return
+
+def test_local_features():
+    """Image pre-processing, to extract plankton's texture."""
+
+    import skimage
+    print("### TEST LOCAL FEATURES ###")
+    x = io.loadmat('dataset/Datas_44.mat')['DATA'][0][0][0]
+
+    for i in range(5):
+        # resize to 227x227
+        import skimage.transform
+        x[i] = skimage.transform.resize(x[i], (227, 227), anti_aliasing = True)
+
+        # grayscale -> canny edge detection -> rgb
+        import skimage.color, skimage.filters, skimage.feature
+        x[i] = skimage.color.rgb2gray(x[i])
+        thresh = skimage.filters.threshold_otsu(x[i])
+        x[i] = x[i] * (x[i] < thresh)
+        x[i] = skimage.feature.canny(x[i], low_threshold = 0, high_threshold = 0)
+        x[i] = x[i].astype(np.float64)
+        x[i] = np.repeat(x[i][:, :, np.newaxis], 3, axis = 2)
+        print(x[i].shape)
+
+        import skimage.io
+        skimage.io.imshow(x[i])
+        skimage.io.show()
+        continue
+
+    return
+        
+
 
 def main():
     # CLASSES
@@ -87,17 +112,45 @@ def main():
         def __getitem__(self, idx):
             return self.transform(self.patterns[idx]), self.labels[idx] - 1
         
-    class PlanktonTransform(object):
-        """Custom plankton image pre-processing transform, using opencv.
+    class PlanktonGlobalFeatures(object):
+        """Custom plankton image pre-processing transform, using scikit-image, to extract plankton's shape and setae information.
         
         Args:
         """
 
-        def __init__(self):
-            pass
+        def __init__(self, size):
+            self.size = size
 
         def __call__(self, image):
-            # TODO: implement
+            image = skimage.transform.resize(image, self.size, anti_aliasing = True)   # resize to size (227x227)
+
+            image = skimage.restoration.denoise_bilateral(image, sigma_color = 0.05, sigma_spatial = 2, channel_axis = -1)   # denoising
+            image = skimage.filters.sobel(image)                                                                             # sobel
+            image = skimage.exposure.equalize_hist(image)                                                                    # histogram equalization
+            p2, p98 = np.percentile(image, (2, 98))                                                                          # intensity rescaling
+            image = skimage.exposure.rescale_intensity(image, in_range = (p2, p98))                                          #
+            
+            return image
+        
+    class PlanktonLocalFeatures(object):
+        """Custom plankton image pre-processing transform, using scikit-image, to extract plankton's texture.
+        
+        Args:
+        """
+
+        def __init__(self, size):
+            self.size = size
+
+        def __call__(self, image):
+            image = skimage.transform.resize(image, self.size, anti_aliasing = True)   # resize to size (227x227)
+
+            image = skimage.color.rgb2gray(image)                                         # grayscale
+            thresh = skimage.filters.threshold_otsu(image)                                # thresholding
+            image = image * (image < thresh)                                              #
+            image = skimage.feature.canny(image, low_threshold = 0, high_threshold = 0)   # canny edge detection
+            image = image.astype(np.float64)                                              # convert to float64
+            image = np.repeat(image[:, :, np.newaxis], 3, axis = 2)                       # convert to rgb
+
             return image
         
     # DATASET
@@ -105,7 +158,7 @@ def main():
     if not os.path.exists(datapath):
         raise Exception('ERROR: Dataset not found. Check the path.')
     
-    mat = np.array(io.loadmat(datapath)['DATA'])[0]
+    mat = io.loadmat(datapath)['DATA'][0]
     x = mat[0][0]             # patterns
     t = mat[1][0]             # labels
     folds = mat[2].shape[0]   # number of folds
@@ -151,9 +204,6 @@ def main():
             v2.ToImage(),
             v2.ToDtype(torch.float32, scale = True),
             v2.Resize(input_size, antialias = True),
-            #v2.GaussianBlur(5, sigma = (0.1, 2.0)),
-            #v2.RandomAdjustSharpness(1.5, 1),
-            #v2.RandomAutocontrast(1)
         ])
 
         # custom dataset
@@ -229,7 +279,8 @@ def main():
 
     # save model
     print('\nSaving model...')
-    if not os.path.exists('output'): os.makedirs('output')
+    if not os.path.exists('output'):
+        os.makedirs('output')
     torch.save(model.state_dict(), 'output/model.pth')
     print('MODEL SAVED')
 
@@ -240,4 +291,11 @@ def main():
     return
 
 if __name__ == '__main__':
-    main() if not DEBUG else debug()
+    match DEBUG:
+        case 0:
+            main()
+        case 1:
+            test_global_features()
+        case 2:
+            test_local_features()
+        
