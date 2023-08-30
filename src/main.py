@@ -79,7 +79,6 @@ def test_local_features():
         x[i] = skimage.feature.canny(x[i], low_threshold = 0, high_threshold = 0)
         x[i] = x[i].astype(np.float64)
         x[i] = np.repeat(x[i][:, :, np.newaxis], 3, axis = 2)
-        print(x[i].shape)
 
         import skimage.io
         skimage.io.imshow(x[i])
