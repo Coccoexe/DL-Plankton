@@ -66,8 +66,16 @@ def debug():
     return
 
 def main():
-    # CUSTOM DATASET
+    # CLASSES
     class PlanktonDataset(Dataset):
+        """Plankton dataset.
+
+        Args:
+            labels (list): list of labels
+            patterns (list): list of patterns
+            transform (callable): transform to apply to the patterns
+        """
+
         def __init__(self, labels, patterns, transform):
             self.labels = torch.tensor(labels, dtype = torch.long)   # labels -> tensor (long)
             self.patterns = patterns                                 # images
@@ -78,6 +86,19 @@ def main():
 
         def __getitem__(self, idx):
             return self.transform(self.patterns[idx]), self.labels[idx] - 1
+        
+    class PlanktonTransform(object):
+        """Custom plankton image pre-processing transform, using opencv.
+        
+        Args:
+        """
+
+        def __init__(self):
+            pass
+
+        def __call__(self, image):
+            # TODO: implement
+            return image
         
     # DATASET
     datapath = 'dataset/Datas_44.mat'
