@@ -23,6 +23,7 @@ from torch.utils.tensorboard import SummaryWriter        # logging
 import skimage, skimage.io, skimage.transform, skimage.restoration, skimage.filters, skimage.exposure, skimage.color, skimage.feature
 
 DEBUG = 0
+SKIP = True
 DEVICE = (
     "cuda"
     if torch.cuda.is_available()
@@ -33,53 +34,52 @@ DEVICE = (
 torch.set_default_device(DEVICE)
 print(f"Using {DEVICE} device")
 
-def main():
-    # CLASSES AND FUNCTIONS
-    class PlanktonDataset(Dataset):
-        """Plankton dataset.
+# CLASSES AND FUNCTIONS
+class PlanktonDataset(Dataset):
+    """Plankton dataset.
 
-        Args:
-            labels (list): list of labels
-            patterns (list): list of patterns
-            transform (callable): transform to apply to the patterns
-        """
+    Args:
+        labels (list): list of labels
+        patterns (list): list of patterns
+        transform (callable): transform to apply to the patterns
+    """
+    def __init__(self, labels, patterns, transform):
+        self.labels = torch.tensor(labels, dtype = torch.long)   # labels -> tensor (long)
+        self.patterns = patterns                                 # images
+        self.transform = transform                               # transforms
+    def __len__(self):
+        return len(self.patterns)
+    def __getitem__(self, idx):
+        return self.transform(self.patterns[idx]), self.labels[idx] - 1
+    
+def plankton_original_features(patterns, size):
+    """Extract original features from patterns.
 
-        def __init__(self, labels, patterns, transform):
-            self.labels = torch.tensor(labels, dtype = torch.long)   # labels -> tensor (long)
-            self.patterns = patterns                                 # images
-            self.transform = transform                               # transforms
+    Args:
+        patterns (list): list of patterns
 
-        def __len__(self):
-            return len(self.patterns)
-
-        def __getitem__(self, idx):
-            return self.transform(self.patterns[idx]), self.labels[idx] - 1
-        
-    def plankton_original_features(patterns, size):
-        """Extract original features from patterns.
-
-        Args:
-            patterns (list): list of patterns
-
-        Returns:
-            list: list of original features
-        """
-        features = []
+    Returns:
+        list: list of original features
+    """
+    features = []
+    with tqdm(total = len(patterns), unit = 'pattern') as pbar:
         for pattern in patterns:
             img = skimage.transform.resize(pattern, size, anti_aliasing = True)
             features.append(img)
-        return features
+            pbar.update(1)
+    return features
     
-    def plankton_global_features(patterns, size):
-        """Extract global features from patterns.
+def plankton_global_features(patterns, size):
+    """Extract global features from patterns.
 
-        Args:
-            patterns (list): list of patterns
+    Args:
+        patterns (list): list of patterns
 
-        Returns:
-            list: list of global features
-        """
-        features = []
+    Returns:
+        list: list of global features
+    """
+    features = []
+    with tqdm(total = len(patterns), unit = 'pattern') as pbar:
         for pattern in patterns:
             img = skimage.transform.resize(pattern, size, anti_aliasing = True)
             img = skimage.restoration.denoise_bilateral(img, sigma_color = 0.05, sigma_spatial = 2, channel_axis = -1)
@@ -88,29 +88,33 @@ def main():
             p2, p98 = np.percentile(img, (2, 98))
             img = skimage.exposure.rescale_intensity(img, in_range = (p2, p98))
             features.append(img)
-        return features
+            pbar.update(1)
+    return features
     
-    def plankton_local_features(patterns, size):
-        """Extract local features from patterns.
+def plankton_local_features(patterns, size):
+    """Extract local features from patterns.
 
-        Args:
-            patterns (list): list of patterns
+    Args:
+        patterns (list): list of patterns
 
-        Returns:
-            list: list of local features
-        """
-        features = []
+    Returns:
+        list: list of local features
+    """
+    features = []
+    with tqdm(total = len(patterns), unit = 'pattern') as pbar:
         for pattern in patterns:
             img = skimage.transform.resize(pattern, size, anti_aliasing = True)
             img = skimage.color.rgb2gray(img)
             threshold = skimage.filters.threshold_otsu(img)
             img = img * (img < threshold)
-            img = skimage.features.canny(img, low_threshold = 0, high_threshold = 0)
+            img = skimage.feature.canny(img, low_threshold = 0, high_threshold = 0)
             img = img.astype(np.float64)
             img = np.repeat(img[:, :, np.newaxis], 3, axis = 2)
             features.append(img)
-        return features
-    
+            pbar.update(1)
+    return features
+
+def main():
     # INPUT
     datapath = 'dataset/Datas_44.mat'
     if not os.path.exists(datapath):
@@ -141,14 +145,26 @@ def main():
     iterations = div // batch_size   # iterations per epoch
 
     # DATASETS
-    print('\nCreating datasets...')
     nets, patterns = [], []
     for i in range(3):
         nets.append(model)
-    patterns.append(plankton_original_features(x, input_size))
-    patterns.append(plankton_global_features(x, input_size))
-    patterns.append(plankton_local_features(x, input_size))
-    print('DATASETS CREATED')
+    if not SKIP:
+        print('\nCreating datasets...')
+        patterns.append(plankton_original_features(x, input_size))
+        patterns.append(plankton_global_features(x, input_size))
+        patterns.append(plankton_local_features(x, input_size))
+        print('DATASETS CREATED')
+        print('\nSaving datasets...')
+        if not os.path.exists('skip'):
+            os.makedirs('skip')
+        for i in range(len(patterns)):
+            torch.save(patterns[i], 'skip/patterns{}.pth'.format(i))
+    else:
+        print('\nLoading datasets...')
+        for pattern in os.listdir('skip'):
+            if pattern.startswith('patterns'):
+                patterns.append(torch.load('skip/' + pattern))
+        print('DATASETS LOADED')
 
     ### RECAP ###
     #
@@ -161,11 +177,13 @@ def main():
     #############
 
     # MAIN LOOP (train and partial evaluation of each model for each fold)
-    for e in range(3):   # for each net
-        print(f'\n### Model {e + 1} ###')
+    for fold in range(folds):   # for each fold
+        print(f'\n### Fold {fold + 1} ###')
 
-        for fold in range(folds):   # for each fold
-            print(f'\n>>> Fold {fold + 1} <<<')
+        dataloader_test = []   # dataloader for test sets
+        accuracy = []          # accuracy for each model
+        for e in range(3):   # for each net
+            print(f'\n>>> Model {e + 1} <<<')
             
             # dataset
             train_pattern, train_label, test_pattern, test_label = [], [], [], []
@@ -193,6 +211,7 @@ def main():
             # dataloaders
             train_dataloader = DataLoader(train_dataset, batch_size = batch_size, shuffle = False)
             test_dataloader = DataLoader(test_dataset, batch_size = batch_size, shuffle = False)
+            dataloader_test.append(test_dataloader)
 
             # tuning
             nets[e].tuning = torch.nn.Sequential(
@@ -247,20 +266,27 @@ def main():
 
                     total += labels.size(0)
                     correct += (predicted == labels).sum().item()
-                print(f'Accuracy: {100 * correct / total:.2f}%')
+                acc = 100 * correct / total
+                accuracy.append(acc)
+                print(f'Accuracy: {acc:.2f}%')
             print('EVALUATION DONE')
 
-        # save model
-        print('\nSaving model...')
-        if not os.path.exists('output'):
-            os.makedirs('output')
-        torch.save(nets[e].state_dict(), 'output/model{}.pth'.format(e + 1))
-        print('MODEL SAVED')
+            # save model
+            print('\nSaving model...')
+            if not os.path.exists('output'):
+                os.makedirs('output')
+            torch.save(nets[e].state_dict(), 'output/model{}.pth'.format(e + 1))
+            print('MODEL SAVED')
     
-    # ENSEMBLE (test with sum rule)
-    print('\n### Ensemble ###')
-    for i in range(3):
-        continue
+        # ENSEMBLE (test with sum rule)
+        #print('\n### Ensemble ###')
+        #for net in nets:
+        #    net.eval()
+        #with torch.no_grad():
+        #    print(len(dataloader_test[0]))                      # for each net
+                    
+
+                    
 
 
 
