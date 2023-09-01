@@ -52,7 +52,7 @@ def test_global_features():
         x[i] = skimage.exposure.equalize_hist(x[i])
         p2, p98 = np.percentile(x[i], (2, 98))
         x[i] = skimage.exposure.rescale_intensity(x[i], in_range = (p2, p98))
-
+        print(x[i].shape)
         import skimage.io
         skimage.io.imshow(x[i])
         skimage.io.show()
@@ -99,11 +99,12 @@ def test_gabor_features():
         import skimage.color, skimage.filters
         x[i] = skimage.color.rgb2gray(x[i])
         real, img = skimage.filters.gabor(x[i], frequency = 0.6)
+        
+        real = real.astype(np.float64)
+        real = np.repeat(real[:, :, np.newaxis], 3, axis = 2)
 
         import skimage.io
         skimage.io.imshow(real)
-        skimage.io.show()
-        skimage.io.imshow(img)
         skimage.io.show()
         continue
     

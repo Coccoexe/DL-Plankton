@@ -24,7 +24,7 @@ import skimage, skimage.io, skimage.transform, skimage.restoration, skimage.filt
 
 DEBUG = 0
 SKIP_PP = True      # skip pre-processing
-SKIP_TR = True     # skip training
+SKIP_TR = False     # skip training
 DEVICE = (
     "cuda"
     if torch.cuda.is_available()
@@ -109,27 +109,6 @@ def plankton_local_features(patterns, size):
             threshold = skimage.filters.threshold_otsu(img)
             img = img * (img < threshold)
             img = skimage.feature.canny(img, low_threshold = 0, high_threshold = 0)
-            img = img.astype(np.float64)
-            img = np.repeat(img[:, :, np.newaxis], 3, axis = 2)
-            features.append(img)
-            pbar.update(1)
-    return features
-
-def plankton_gabor_features(patterns, size):
-    """Extract gabor features from patterns.
-
-    Args:
-        patterns (list): list of patterns
-
-    Returns:
-        list: list of local features
-    """
-    features = []
-    with tqdm(total = len(patterns), unit = 'pattern') as pbar:
-        for pattern in patterns:
-            img = skimage.transform.resize(pattern, size, anti_aliasing = True)
-            img = skimage.color.rgb2gray(img)
-            img = skimage.filters.gabor(img, frequency = 0.6)
             img = img.astype(np.float64)
             img = np.repeat(img[:, :, np.newaxis], 3, axis = 2)
             features.append(img)
