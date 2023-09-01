@@ -23,7 +23,8 @@ from torch.utils.tensorboard import SummaryWriter        # logging
 import skimage, skimage.io, skimage.transform, skimage.restoration, skimage.filters, skimage.exposure, skimage.color, skimage.feature
 
 DEBUG = 0
-SKIP = True
+SKIP_PP = True      # skip pre-processing
+SKIP_TR = True     # skip training
 DEVICE = (
     "cuda"
     if torch.cuda.is_available()
@@ -114,6 +115,28 @@ def plankton_local_features(patterns, size):
             pbar.update(1)
     return features
 
+def plankton_gabor_features(patterns, size):
+    """Extract gabor features from patterns.
+
+    Args:
+        patterns (list): list of patterns
+
+    Returns:
+        list: list of local features
+    """
+    features = []
+    with tqdm(total = len(patterns), unit = 'pattern') as pbar:
+        for pattern in patterns:
+            img = skimage.transform.resize(pattern, size, anti_aliasing = True)
+            img = skimage.color.rgb2gray(img)
+            img = skimage.filters.gabor(img, frequency = 0.6)
+            img = img.astype(np.float64)
+            img = np.repeat(img[:, :, np.newaxis], 3, axis = 2)
+            features.append(img)
+            pbar.update(1)
+    return features
+
+
 def main():
     # INPUT
     datapath = 'dataset/Datas_44.mat'
@@ -148,7 +171,7 @@ def main():
     nets, patterns = [], []
     for i in range(3):
         nets.append(model)
-    if not SKIP:
+    if not SKIP_PP:
         print('\nCreating datasets...')
         patterns.append(plankton_original_features(x, input_size))
         patterns.append(plankton_global_features(x, input_size))
@@ -215,8 +238,8 @@ def main():
 
             # tuning
             nets[e].tuning = torch.nn.Sequential(
-                torch.nn.Linear(4096, num_classes, bias = True),
-                torch.nn.Softmax(dim = 1)
+                torch.nn.Linear(4096, num_classes, bias = True)#,
+                #torch.nn.Softmax(dim = 1)
             )
             nets[e] = nets[e].to(DEVICE)
 
@@ -230,6 +253,15 @@ def main():
                 {'params': nets[e].classifier.parameters()},
                 {'params': nets[e].tuning.parameters(), 'lr': lr * factor}
             ], lr = lr, momentum = momentum)
+
+            if SKIP_TR:  # load model
+                print('\nSkipping training...')
+                print('\nLoading model...')
+                nets[e].load_state_dict(torch.load('output/fold{}/model{}.pth'.format(fold, e + 1)))
+                with open('output/fold{}/accuracy{}.txt'.format(fold, e + 1), 'r') as f:
+                    accuracy.append(float(f.read()))
+                print('MODEL LOADED')
+                continue
 
             # training
             print('\nTraining...')
@@ -275,24 +307,100 @@ def main():
             print('\nSaving model...')
             if not os.path.exists('output'):
                 os.makedirs('output')
-            torch.save(nets[e].state_dict(), 'output/model{}.pth'.format(e + 1))
+            if not os.path.exists('output/fold{}'.format(fold)):
+                os.makedirs('output/fold{}'.format(fold))
+            torch.save(nets[e].state_dict(), 'output/fold{}/model{}.pth'.format(fold, e + 1))
+            with open('output/fold{}/accuracy{}.txt'.format(fold, e + 1), 'w') as f:
+                f.write(str(acc))
             print('MODEL SAVED')
     
         # ENSEMBLE (test with sum rule)
         #print('\n### Ensemble ###')
-        #for net in nets:
-        #    net.eval()
-        #with torch.no_grad():
-        #    print(len(dataloader_test[0]))                      # for each net
-                    
+        for net in nets:
+            net.eval()
+        with torch.no_grad():
+            outputs = []
+            labels = []
+            for i in range(len(nets)):                                          # for each net
+                predict = []
+                for data in dataloader_test[i]:                                 # for each batch                                         
+                    inputs, lab = data[0].to(DEVICE), data[1].to(DEVICE)
+                    out = nets[i](inputs)
+                    predict.extend(out)
+                    if i == 0:
+                        labels.extend(lab)
+                outputs.append(predict)
+        
 
-                    
+        # majority voting
+        print('\n### Majority voting ###')
+        from collections import defaultdict
+        correct = 0
+        total = 0
+        for i in range(len(outputs[0])):                          # for each image
+            map = defaultdict()
+            for j in range(len(outputs)):                          # for each net 
+                predicted = torch.max(outputs[j][i], 0)
+                if predicted.indices.item() in map:
+                    map[predicted.indices.item()] = (map[predicted.indices.item()][0] + 1, max(map[predicted.indices.item()][1], predicted.values.item()))
+                else:
+                    map[predicted.indices.item()] = (1, predicted.values.item())            
+
+            # sort by freq,prob
+            map = sorted(map.items(), key=lambda x: (x[1][0], x[1][1]), reverse=True)
+
+            #print("predicted: ", map[0][0], "  true: ", labels[i].item())
+            total += 1
+            correct += (map[0][0] == labels[i].item())
+        
+        acc = 100 * correct / total
+        print(f'Accuracy: {acc:.2f}%')
 
 
+        # ensemble
+        print('\n### Ensemble ###')
+        correct = 0
+        total = 0
+        for i in range(len(outputs[0])):
+            sum = torch.zeros(num_classes)
+            for j in range(len(outputs)):
+                for k in range(num_classes):
+                    sum[k] += outputs[j][i][k] * accuracy[j] / 100
+                if i in range(0, 0):
+                    pred = torch.max(outputs[j][i], 0)
+                    print("image",i,"true", labels[i].item() ,"  predicted ",pred.indices.item(),"  prob ",pred.values.item())
+            _, predicted = torch.max(sum.data, 0)
+            predicted = predicted.item()
+            total += 1
+            correct += (predicted == labels[i].item())
+        
+        acc = 100 * correct / total
+        print(f'Accuracy: {acc:.2f}%')
 
 
+        #enseble kk
+        print('\n### Ensemble di kk ###')
+        correct = 0
+        total = 0
+        for i in range(len(outputs[0])):
+            mean = torch.zeros(num_classes)
+            for k in range(num_classes):
+                for j in range(0,2):
+                    mean[k] += outputs[j][i][k]
+                mean[k] /= 2
+            
+            sum = torch.zeros(num_classes)
+            for k in range(num_classes):
+                sum[k] += outputs[2][i][k]
+                sum[k] += mean[k]
 
-
+            _, predicted = torch.max(sum.data, 0)
+            predicted = predicted.item()
+            total += 1
+            correct += (predicted == labels[i].item())
+        
+        acc = 100 * correct / total
+        print(f'Accuracy: {acc:.2f}%')            
 
 if __name__ == '__main__':
     main()

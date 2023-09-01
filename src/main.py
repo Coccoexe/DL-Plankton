@@ -22,7 +22,7 @@ from torch.utils.tensorboard import SummaryWriter        # logging
 # scikit-image
 import skimage, skimage.io, skimage.transform, skimage.restoration, skimage.filters, skimage.exposure, skimage.color, skimage.feature
 
-DEBUG = 0
+DEBUG = 3
 DEVICE = (
     "cuda"
     if torch.cuda.is_available()
@@ -86,7 +86,28 @@ def test_local_features():
         continue
 
     return
-        
+
+def test_gabor_features():
+
+    import skimage
+    print("### TEST LOCAL FEATURES ###")
+    x = io.loadmat('dataset/Datas_44.mat')['DATA'][0][0][0]
+    for i in range(5):
+        import skimage.transform
+        x[i] = skimage.transform.resize(x[i], (227, 227), anti_aliasing = True)
+
+        import skimage.color, skimage.filters
+        x[i] = skimage.color.rgb2gray(x[i])
+        real, img = skimage.filters.gabor(x[i], frequency = 0.6)
+
+        import skimage.io
+        skimage.io.imshow(real)
+        skimage.io.show()
+        skimage.io.imshow(img)
+        skimage.io.show()
+        continue
+    
+    return
 
 
 def main():
@@ -297,4 +318,6 @@ if __name__ == '__main__':
             test_global_features()
         case 2:
             test_local_features()
+        case 3:
+            test_gabor_features()
         
