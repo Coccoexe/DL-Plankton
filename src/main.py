@@ -22,7 +22,8 @@ from torch.utils.tensorboard import SummaryWriter        # logging
 # scikit-image
 import skimage, skimage.io, skimage.transform, skimage.restoration, skimage.filters, skimage.exposure, skimage.color, skimage.feature
 
-DEBUG = 3
+PRE = 4
+DEBUG = 0
 DEVICE = (
     "cuda"
     if torch.cuda.is_available()
@@ -110,69 +111,177 @@ def test_gabor_features():
     
     return
 
+def test_dft():
+    """Image pre-processing, to extract plankton's texture."""
+
+    import skimage
+    print("### TEST LOCAL FEATURES ###")
+    x = io.loadmat('dataset/Datas_44.mat')['DATA'][0][0][0]
+
+    for i in range(5):
+        # resize to 227x227
+        import skimage.transform
+        x[i] = skimage.transform.resize(x[i], (227, 227), anti_aliasing = True)
+
+        # dft
+        from scipy.fft import fft, fftshift
+        import skimage.color
+        from skimage.filters import window
+
+        img = skimage.color.rgb2gray(x[i])
+        img = img.astype(np.float64)
+        img = np.abs(fftshift(fft(img)))
+
+        import matplotlib.pyplot as plt
+        fig, axes = plt.subplots(1, 2, figsize=(8, 8))
+        ax = axes.ravel()
+        ax[0].set_title("Original image")
+        ax[0].imshow(img, cmap='gray')
+        ax[1].set_title("Original FFT (frequency)")
+        ax[1].imshow(np.log(img), cmap='magma')
+        plt.show()
+
+        import skimage.io
+        skimage.io.imshow(np.log(img))
+        skimage.io.show()
+    return
+
+# CLASSES AND FUNCTIONS
+class PlanktonDataset(Dataset):
+    """Plankton dataset.
+
+    Args:
+        labels (list): list of labels
+        patterns (list): list of patterns
+        transform (callable): transform to apply to the patterns
+    """
+    def __init__(self, labels, patterns, transform):
+        self.labels = torch.tensor(labels, dtype = torch.long)   # labels -> tensor (long)
+        self.patterns = patterns                                 # images
+        self.transform = transform                               # transforms
+    def __len__(self):
+        return len(self.patterns)
+    def __getitem__(self, idx):
+        return self.transform(self.patterns[idx]), self.labels[idx] - 1
+    
+def plankton_original_features(patterns, size):
+    """Extract original features from patterns.
+
+    Args:
+        patterns (list): list of patterns
+
+    Returns:
+        list: list of original features
+    """
+    features = []
+    with tqdm(total = len(patterns), unit = 'pattern') as pbar:
+        for pattern in patterns:
+            img = skimage.transform.resize(pattern, size, anti_aliasing = True)
+            features.append(img)
+            pbar.update(1)
+    return features
+    
+def plankton_global_features(patterns, size):
+    """Extract global features from patterns.
+
+    Args:
+        patterns (list): list of patterns
+
+    Returns:
+        list: list of global features
+    """
+    features = []
+    with tqdm(total = len(patterns), unit = 'pattern') as pbar:
+        for pattern in patterns:
+            img = skimage.transform.resize(pattern, size, anti_aliasing = True)
+            img = skimage.restoration.denoise_bilateral(img, sigma_color = 0.05, sigma_spatial = 2, channel_axis = -1)
+            img = skimage.filters.sobel(img)
+            img = skimage.exposure.equalize_hist(img)
+            p2, p98 = np.percentile(img, (2, 98))
+            img = skimage.exposure.rescale_intensity(img, in_range = (p2, p98))
+            features.append(img)
+            pbar.update(1)
+    return features
+    
+def plankton_local_features(patterns, size):
+    """Extract local features from patterns.
+
+    Args:
+        patterns (list): list of patterns
+
+    Returns:
+        list: list of local features
+    """
+    features = []
+    with tqdm(total = len(patterns), unit = 'pattern') as pbar:
+        for pattern in patterns:
+            img = skimage.transform.resize(pattern, size, anti_aliasing = True)
+            img = skimage.color.rgb2gray(img)
+            threshold = skimage.filters.threshold_otsu(img)
+            img = img * (img < threshold)
+            img = skimage.feature.canny(img, low_threshold = 0, high_threshold = 0)
+            img = img.astype(np.float64)
+            img = np.repeat(img[:, :, np.newaxis], 3, axis = 2)
+            features.append(img)
+            pbar.update(1)
+    return features
+
+def plankton_fourier_features(patterns, size):
+    """Extract fourier features from patterns.
+
+    Args:
+        patterns (list): list of patterns
+
+    Returns:
+        list: list of fourier features
+    """
+    features = []
+    with tqdm(total = len(patterns), unit = 'pattern') as pbar:
+        for pattern in patterns:
+            img = skimage.transform.resize(pattern, size, anti_aliasing = True)
+            img = skimage.color.rgb2gray(img)
+            img = img.astype(np.float64)
+            img = np.abs(np.fft.fftshift(np.fft.fft2(img)))
+            img = np.log(img)
+            img = img - np.min(img)
+            img = img / np.max(img)
+            img = img * 255
+            img = img.astype(np.uint8)
+            img = np.repeat(img[:, :, np.newaxis], 3, axis = 2)
+            features.append(img)
+            pbar.update(1)
+    return features
+
+def plankton_gabor_features(patterns, size):
+    """Extract gabor features from patterns.
+
+    Args:
+        patterns (list): list of patterns
+
+    Returns:
+        list: list of gabor features
+    """
+    features = []
+    with tqdm(total = len(patterns), unit = 'pattern') as pbar:
+        for pattern in patterns:
+            img = skimage.transform.resize(pattern, size, anti_aliasing = True)
+            img = skimage.color.rgb2gray(img)
+            real, img = skimage.filters.gabor(img, frequency = 0.6)
+            real = real - np.min(real)
+            real = real / np.max(real)
+            real = real * 255
+            real = real.astype(np.uint8)
+            real = np.repeat(real[:, :, np.newaxis], 3, axis = 2)
+            img = img - np.min(img)
+            img = img / np.max(img)
+            img = img * 255
+            img = img.astype(np.uint8)
+            img = np.repeat(img[:, :, np.newaxis], 3, axis = 2)
+            features.append(real)
+            pbar.update(1)
+    return features
 
 def main():
-    # CLASSES
-    class PlanktonDataset(Dataset):
-        """Plankton dataset.
-
-        Args:
-            labels (list): list of labels
-            patterns (list): list of patterns
-            transform (callable): transform to apply to the patterns
-        """
-
-        def __init__(self, labels, patterns, transform):
-            self.labels = torch.tensor(labels, dtype = torch.long)   # labels -> tensor (long)
-            self.patterns = patterns                                 # images
-            self.transform = transform                               # transforms
-
-        def __len__(self):
-            return len(self.patterns)
-
-        def __getitem__(self, idx):
-            return self.transform(self.patterns[idx]), self.labels[idx] - 1
-        
-    class PlanktonGlobalFeatures(object):
-        """Custom plankton image pre-processing transform, using scikit-image, to extract plankton's shape and setae information.
-        
-        Args:
-        """
-
-        def __init__(self, size):
-            self.size = size
-
-        def __call__(self, image):
-            image = skimage.transform.resize(image, self.size, anti_aliasing = True)   # resize to size (227x227)
-
-            image = skimage.restoration.denoise_bilateral(image, sigma_color = 0.05, sigma_spatial = 2, channel_axis = -1)   # denoising
-            image = skimage.filters.sobel(image)                                                                             # sobel
-            image = skimage.exposure.equalize_hist(image)                                                                    # histogram equalization
-            p2, p98 = np.percentile(image, (2, 98))                                                                          # intensity rescaling
-            image = skimage.exposure.rescale_intensity(image, in_range = (p2, p98))                                          #
-            
-            return image
-        
-    class PlanktonLocalFeatures(object):
-        """Custom plankton image pre-processing transform, using scikit-image, to extract plankton's texture.
-        
-        Args:
-        """
-
-        def __init__(self, size):
-            self.size = size
-
-        def __call__(self, image):
-            image = skimage.transform.resize(image, self.size, anti_aliasing = True)   # resize to size (227x227)
-
-            image = skimage.color.rgb2gray(image)                                         # grayscale
-            thresh = skimage.filters.threshold_otsu(image)                                # thresholding
-            image = image * (image < thresh)                                              #
-            image = skimage.feature.canny(image, low_threshold = 0, high_threshold = 0)   # canny edge detection
-            image = image.astype(np.float64)                                              # convert to float64
-            image = np.repeat(image[:, :, np.newaxis], 3, axis = 2)                       # convert to rgb
-
-            return image
         
     # DATASET
     datapath = 'dataset/Datas_44.mat'
@@ -203,6 +312,26 @@ def main():
     momentum = 0.9                   # momentum
     iterations = div // batch_size   # iterations per epoch
 
+    # preprocessing
+    patterns = []
+    match PRE:
+        case 0:
+            print('Pre-processing: none')
+            patterns = x
+        case 1:
+            print('Pre-processing: global features')
+            patterns = plankton_global_features(x, input_size)
+        case 2:
+            print('Pre-processing: local features')
+            patterns = plankton_local_features(x, input_size)
+        case 3:
+            print('Pre-processing: fourier features')
+            patterns = plankton_fourier_features(x, input_size)
+        case 4:
+            print('Pre-processing: gabor features')
+            patterns = plankton_gabor_features(x, input_size)
+    
+
     # MAIN LOOP
     for fold in range(folds):   # for each fold
         print(f'\n### Fold {fold + 1}/{folds} ###')
@@ -210,10 +339,10 @@ def main():
         # dataset
         train_pattern , train_label, test_pattern, test_label = [], [], [], []
         for i in shuff[fold][:div] - 1:
-            train_pattern.append(Image.fromarray(x[i]))   # 0:div pre-shuffled pattern from fold
+            train_pattern.append(patterns[i])   # 0:div pre-shuffled pattern from fold
             train_label.append(t[i])                      # 0:div pre-shuffled label from fold
         for i in shuff[fold][div:] - 1:
-            test_pattern.append(Image.fromarray(x[i]))    # div:tot pre-shuffled pattern from fold
+            test_pattern.append(patterns[i])    # div:tot pre-shuffled pattern from fold
             test_label.append(t[i])                       # div:tot pre-shuffled label from fold
         num_classes = max(train_label)                    # number of classes
         print(f'Training patterns: {len(train_pattern)}')
@@ -321,4 +450,6 @@ if __name__ == '__main__':
             test_local_features()
         case 3:
             test_gabor_features()
+        case 4:
+            test_dft()
         

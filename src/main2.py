@@ -24,7 +24,8 @@ import skimage, skimage.io, skimage.transform, skimage.restoration, skimage.filt
 
 DEBUG = 0
 SKIP_PP = True      # skip pre-processing
-SKIP_TR = False     # skip training
+SKIP_TR = True     # skip training
+MODELS = 4
 DEVICE = (
     "cuda"
     if torch.cuda.is_available()
@@ -115,6 +116,35 @@ def plankton_local_features(patterns, size):
             pbar.update(1)
     return features
 
+def plankton_gabor_features(patterns, size):
+    """Extract gabor features from patterns.
+
+    Args:
+        patterns (list): list of patterns
+
+    Returns:
+        list: list of gabor features
+    """
+    features = []
+    with tqdm(total = len(patterns), unit = 'pattern') as pbar:
+        for pattern in patterns:
+            img = skimage.transform.resize(pattern, size, anti_aliasing = True)
+            img = skimage.color.rgb2gray(img)
+            real, img = skimage.filters.gabor(img, frequency = 0.6)
+            real = real - np.min(real)
+            real = real / np.max(real)
+            real = real * 255
+            real = real.astype(np.uint8)
+            real = np.repeat(real[:, :, np.newaxis], 3, axis = 2)
+            img = img - np.min(img)
+            img = img / np.max(img)
+            img = img * 255
+            img = img.astype(np.uint8)
+            img = np.repeat(img[:, :, np.newaxis], 3, axis = 2)
+            features.append(real)
+            pbar.update(1)
+    return features
+
 
 def main():
     # INPUT
@@ -148,13 +178,14 @@ def main():
 
     # DATASETS
     nets, patterns = [], []
-    for i in range(3):
+    for i in range(MODELS):
         nets.append(model)
     if not SKIP_PP:
         print('\nCreating datasets...')
         patterns.append(plankton_original_features(x, input_size))
         patterns.append(plankton_global_features(x, input_size))
         patterns.append(plankton_local_features(x, input_size))
+        patterns.append(plankton_gabor_features(x, input_size))
         print('DATASETS CREATED')
         print('\nSaving datasets...')
         if not os.path.exists('skip'):
@@ -184,7 +215,7 @@ def main():
 
         dataloader_test = []   # dataloader for test sets
         accuracy = []          # accuracy for each model
-        for e in range(3):   # for each net
+        for e in range(MODELS):   # for each net
             print(f'\n>>> Model {e + 1} <<<')
             
             # dataset
@@ -364,13 +395,13 @@ def main():
         for i in range(len(outputs[0])):
             mean = torch.zeros(num_classes)
             for k in range(num_classes):
-                for j in range(0,2):
+                for j in range(3):
                     mean[k] += outputs[j][i][k]
-                mean[k] /= 2
+                mean[k] /= 3
             
             sum = torch.zeros(num_classes)
             for k in range(num_classes):
-                sum[k] += outputs[2][i][k]
+                sum[k] += outputs[3][i][k]
                 sum[k] += mean[k]
 
             _, predicted = torch.max(sum.data, 0)
