@@ -22,8 +22,9 @@ from torch.utils.tensorboard import SummaryWriter        # logging
 # scikit-image
 import skimage, skimage.io, skimage.transform, skimage.restoration, skimage.filters, skimage.exposure, skimage.color, skimage.feature
 
-PRE = 0
-DEBUG = 0
+SKIP_PP = True      # skip pre-processing
+SKIP_TR = True     # skip training
+MODELS = 4
 DEVICE = (
     "cuda"
     if torch.cuda.is_available()
@@ -33,125 +34,6 @@ DEVICE = (
 )
 torch.set_default_device(DEVICE)
 print(f"Using {DEVICE} device")
-
-def test_global_features():
-    """Image pre-processing, to extract plankton's shape and setae information."""
-
-    import skimage
-    print("### TEST GLOBAL FEATURES ###")
-    x = io.loadmat('dataset/Datas_44.mat')['DATA'][0][0][0]
-
-    for i in range(5):
-        # RESIZE: 227x227
-        import skimage.transform
-        x[i] = skimage.transform.resize(x[i], (227, 227), anti_aliasing = True)
-
-        # PRE-PROCESSING: denoising, sobel, histogram equalization, intensity rescaling
-        import skimage.restoration, skimage.filters, skimage.exposure
-        x[i] = skimage.restoration.denoise_bilateral(x[i], sigma_color = 0.05, sigma_spatial = 2, channel_axis = -1)
-        x[i] = skimage.filters.sobel(x[i])
-        x[i] = skimage.exposure.equalize_hist(x[i])
-        p2, p98 = np.percentile(x[i], (2, 98))
-        x[i] = skimage.exposure.rescale_intensity(x[i], in_range = (p2, p98))
-        print(x[i].shape)
-        import skimage.io
-        skimage.io.imshow(x[i])
-        skimage.io.show()
-
-    return
-
-def test_local_features():
-    """Image pre-processing, to extract plankton's texture."""
-
-    import skimage
-    print("### TEST LOCAL FEATURES ###")
-    x = io.loadmat('dataset/Datas_44.mat')['DATA'][0][0][0]
-
-    for i in range(5):
-        # resize to 227x227
-        import skimage.transform
-        x[i] = skimage.transform.resize(x[i], (227, 227), anti_aliasing = True)
-
-        # grayscale -> canny edge detection -> rgb
-        import skimage.color, skimage.filters, skimage.feature
-        x[i] = skimage.color.rgb2gray(x[i])
-        thresh = skimage.filters.threshold_otsu(x[i])
-        x[i] = x[i] * (x[i] < thresh)
-        x[i] = skimage.feature.canny(x[i], low_threshold = 0, high_threshold = 0)
-        x[i] = x[i].astype(np.float64)
-        x[i] = np.repeat(x[i][:, :, np.newaxis], 3, axis = 2)
-
-        import skimage.io
-        skimage.io.imshow(x[i])
-        skimage.io.show()
-        continue
-
-    return
-
-def test_gabor_features():
-
-    import skimage
-    print("### TEST LOCAL FEATURES ###")
-    x = io.loadmat('dataset/Datas_44.mat')['DATA'][0][0][0]
-    for i in range(5):
-        import skimage.transform
-        img = skimage.transform.resize(x[i], (227, 227), anti_aliasing = True)
-
-        import skimage.color, skimage.filters
-        img = skimage.color.rgb2gray(img)
-        real, img = skimage.filters.gabor(img, frequency = 0.6)
-        real = real - np.min(real)
-        real = real / np.max(real)
-        real = real * 255
-        real = real.astype(np.uint8)
-        real = np.repeat(real[:, :, np.newaxis], 3, axis = 2)
-        img = img - np.min(img)
-        img = img / np.max(img)
-        img = img * 255
-        img = img.astype(np.uint8)
-        img = np.repeat(img[:, :, np.newaxis], 3, axis = 2)
-
-        import skimage.io
-        skimage.io.imshow(real)
-        skimage.io.show()
-        continue
-    
-    return
-
-def test_dft():
-    """Image pre-processing, to extract plankton's texture."""
-
-    import skimage
-    print("### TEST LOCAL FEATURES ###")
-    x = io.loadmat('dataset/Datas_44.mat')['DATA'][0][0][0]
-
-    for i in range(5):
-        # resize to 227x227
-        import skimage.transform
-        x[i] = skimage.transform.resize(x[i], (227, 227), anti_aliasing = True)
-
-        # dft
-        from scipy.fft import fft, fftshift
-        import skimage.color
-        from skimage.filters import window
-
-        img = skimage.color.rgb2gray(x[i])
-        img = img.astype(np.float64)
-        img = np.abs(fftshift(fft(img)))
-
-        import matplotlib.pyplot as plt
-        fig, axes = plt.subplots(1, 2, figsize=(8, 8))
-        ax = axes.ravel()
-        ax[0].set_title("Original image")
-        ax[0].imshow(img, cmap='gray')
-        ax[1].set_title("Original FFT (frequency)")
-        ax[1].imshow(np.log(img), cmap='magma')
-        plt.show()
-
-        import skimage.io
-        skimage.io.imshow(np.log(img))
-        skimage.io.show()
-    return
 
 # CLASSES AND FUNCTIONS
 class PlanktonDataset(Dataset):
@@ -233,32 +115,6 @@ def plankton_local_features(patterns, size):
             pbar.update(1)
     return features
 
-def plankton_fourier_features(patterns, size):
-    """Extract fourier features from patterns.
-
-    Args:
-        patterns (list): list of patterns
-
-    Returns:
-        list: list of fourier features
-    """
-    features = []
-    with tqdm(total = len(patterns), unit = 'pattern') as pbar:
-        for pattern in patterns:
-            img = skimage.transform.resize(pattern, size, anti_aliasing = True)
-            img = skimage.color.rgb2gray(img)
-            img = img.astype(np.float64)
-            img = np.abs(np.fft.fftshift(np.fft.fft2(img)))
-            img = np.log(img)
-            img = img - np.min(img)
-            img = img / np.max(img)
-            img = img * 255
-            img = img.astype(np.uint8)
-            img = np.repeat(img[:, :, np.newaxis], 3, axis = 2)
-            features.append(img)
-            pbar.update(1)
-    return features
-
 def plankton_gabor_features(patterns, size):
     """Extract gabor features from patterns.
 
@@ -288,9 +144,9 @@ def plankton_gabor_features(patterns, size):
             pbar.update(1)
     return features
 
+
 def main():
-        
-    # DATASET
+    # INPUT
     datapath = 'dataset/Datas_44.mat'
     if not os.path.exists(datapath):
         raise Exception('ERROR: Dataset not found. Check the path.')
@@ -302,9 +158,9 @@ def main():
     shuff = mat[2]            # pre-shuffled indexes ('folds' different permutations)
     div = mat[3][0][0]        # training patterns number
     tot = mat[4][0][0]        # UNUSED: total patterns number
-    
+
     # ALEXNET
-    print('Loading AlexNet...')
+    print('\nLoading AlexNet...')
     model = models.alexnet(weights = AlexNet_Weights.DEFAULT)
     layers = list(model.classifier.children())[:-1]
     model.classifier = torch.nn.Sequential(*layers)
@@ -319,144 +175,241 @@ def main():
     momentum = 0.9                   # momentum
     iterations = div // batch_size   # iterations per epoch
 
-    # preprocessing
-    patterns = []
-    match PRE:
-        case 0:
-            print('Pre-processing: none')
-            patterns = x
-        case 1:
-            print('Pre-processing: global features')
-            patterns = plankton_global_features(x, input_size)
-        case 2:
-            print('Pre-processing: local features')
-            patterns = plankton_local_features(x, input_size)
-        case 3:
-            print('Pre-processing: fourier features')
-            patterns = plankton_fourier_features(x, input_size)
-        case 4:
-            print('Pre-processing: gabor features')
-            patterns = plankton_gabor_features(x, input_size)
-    
+    # DATASETS
+    nets, patterns = [], []
+    for i in range(MODELS):
+        nets.append(model)
+    if not SKIP_PP:
+        print('\nCreating datasets...')
+        patterns.append(plankton_original_features(x, input_size))
+        patterns.append(plankton_global_features(x, input_size))
+        patterns.append(plankton_local_features(x, input_size))
+        patterns.append(plankton_gabor_features(x, input_size))
+        print('DATASETS CREATED')
+        print('\nSaving datasets...')
+        if not os.path.exists('skip'):
+            os.makedirs('skip')
+        for i in range(len(patterns)):
+            torch.save(patterns[i], 'skip/patterns{}.pth'.format(i))
+    else:
+        print('\nLoading datasets...')
+        for pattern in os.listdir('skip'):
+            if pattern.startswith('patterns'):
+                patterns.append(torch.load('skip/' + pattern))
+        print('DATASETS LOADED')
 
-    # MAIN LOOP
+    ### RECAP ###
+    #
+    # nets = [alexnet, alexnet, alexnet]
+    # patterns = [original, global, local]
+    # t = labels (same for all 3 datasets)
+    # 
+    # -> ensemble of 3 alexnet models, each trained on a different dataset
+    #
+    #############
+
+    # MAIN LOOP (train and partial evaluation of each model for each fold)
     for fold in range(folds):   # for each fold
-        print(f'\n### Fold {fold + 1}/{folds} ###')
+        print(f'\n### Fold {fold + 1} ###')
 
-        # dataset
-        train_pattern , train_label, test_pattern, test_label = [], [], [], []
-        for i in shuff[fold][:div] - 1:
-            train_pattern.append(patterns[i])   # 0:div pre-shuffled pattern from fold
-            train_label.append(t[i])                      # 0:div pre-shuffled label from fold
-        for i in shuff[fold][div:] - 1:
-            test_pattern.append(patterns[i])    # div:tot pre-shuffled pattern from fold
-            test_label.append(t[i])                       # div:tot pre-shuffled label from fold
-        num_classes = max(train_label)                    # number of classes
-        print(f'Training patterns: {len(train_pattern)}')
-        print(f'Testing patterns: {len(test_pattern)}')
-        print(f'Number of classes: {num_classes}')
+        dataloader_test = []   # dataloader for test sets
+        accuracy = []          # accuracy for each model
+        for e in range(MODELS):   # for each net
+            print(f'\n>>> Model {e + 1} <<<')
+            
+            # dataset
+            train_pattern, train_label, test_pattern, test_label = [], [], [], []
+            for i in shuff[fold][:div] - 1:
+                train_pattern.append(patterns[e][i])
+                train_label.append(t[i])
+            for i in shuff[fold][div:] - 1:
+                test_pattern.append(patterns[e][i])
+                test_label.append(t[i])
+            num_classes = max(train_label)
+            print(f'Training patterns: {len(train_pattern)}')
+            print(f'Test patterns: {len(test_pattern)}')
+            print(f'Number of classes: {num_classes}')
 
-        # transforms
-        data_transform = v2.Compose([
-            v2.ToImage(),
-            v2.ToDtype(torch.float32, scale = True),
-            v2.Resize(input_size, antialias = True),
-        ])
+            # transforms
+            data_transform = v2.Compose([
+                v2.ToImage(),
+                v2.ToDtype(torch.float32, scale = True)
+            ])
 
-        # custom dataset
-        train_data = PlanktonDataset(labels = train_label, patterns = train_pattern, transform = data_transform)
-        test_data = PlanktonDataset(labels = test_label, patterns = test_pattern, transform = data_transform)
+            # custom datasets
+            train_dataset = PlanktonDataset(train_label, train_pattern, data_transform)
+            test_dataset = PlanktonDataset(test_label, test_pattern, data_transform)
 
-        # dataloader
-        train_dataloader = DataLoader(train_data, batch_size = batch_size, shuffle = False)
-        test_dataloader = DataLoader(test_data, batch_size = batch_size, shuffle = False)
+            # dataloaders
+            train_dataloader = DataLoader(train_dataset, batch_size = batch_size, shuffle = False)
+            test_dataloader = DataLoader(test_dataset, batch_size = batch_size, shuffle = False)
+            dataloader_test.append(test_dataloader)
 
-        # tuning
-        model.tuning = torch.nn.Sequential(
-            torch.nn.Linear(4096, num_classes, bias = True),
-            torch.nn.Softmax(dim = 1)
-        )
-        model = model.to(DEVICE)   # GPU computing, if available
+            # tuning
+            nets[e].tuning = torch.nn.Sequential(
+                torch.nn.Linear(4096, num_classes, bias = True)#,
+                #torch.nn.Softmax(dim = 1)
+            )
+            nets[e] = nets[e].to(DEVICE)
 
-        # loss function
-        loss_fn = torch.nn.CrossEntropyLoss()
+            # loss function
+            loss_fn = torch.nn.CrossEntropyLoss()
 
-        # optimizer
-        optimizer = torch.optim.SGD([
-            {'params': model.features.parameters()},
-            {'params': model.avgpool.parameters()},
-            {'params': model.classifier.parameters()},
-            {'params': model.tuning.parameters(), 'lr': lr * factor}
-        ], lr = lr, momentum = momentum)
+            # optimizer
+            optimizer = torch.optim.SGD([
+                {'params': nets[e].features.parameters()},
+                {'params': nets[e].avgpool.parameters()},
+                {'params': nets[e].classifier.parameters()},
+                {'params': nets[e].tuning.parameters(), 'lr': lr * factor}
+            ], lr = lr, momentum = momentum)
 
-        # training
-        print('\nTraining...')
-        model.train()
-        writer = SummaryWriter('runs/plankton_AGE-{}_FOLD-{}'.format(datetime.now().strftime("%Y%m%d.%H%M%S"), fold + 1))
+            if SKIP_TR:  # load model
+                print('\nSkipping training...')
+                print('\nLoading model...')
+                nets[e].load_state_dict(torch.load('output/fold{}/model{}.pth'.format(fold, e + 1)))
+                with open('output/fold{}/accuracy{}.txt'.format(fold, e + 1), 'r') as f:
+                    accuracy.append(float(f.read()))
+                print('MODEL LOADED')
+                continue
 
-        with tqdm(total = epochs, unit = 'epoch') as pbar:   # progress bar
-            for epoch in range(epochs):                      # for each epoch
-                for i, data in enumerate(train_dataloader):
-                    # data (GPU computing, if available)
+            # training
+            print('\nTraining...')
+            nets[e].train()
+            writer = SummaryWriter('runs/plankton_AGE-{}_NET-{}_FOLD-{}'.format(datetime.now().strftime("%Y%m%d-%H%M%S"), e + 1, fold + 1))
+
+            with tqdm(total = epochs, unit = 'epoch') as pbar:   # progress bar
+                for epoch in range(epochs):                      # for each epoch
+                    for i, data in enumerate(train_dataloader):  # for each batch
+                        inputs, labels = data[0].to(DEVICE), data[1].to(DEVICE)
+
+                        optimizer.zero_grad()             # zero the gradients
+                        outputs = nets[e](inputs)         # forward pass
+                        loss = loss_fn(outputs, labels)   # loss
+                        loss.backward()                   # backward pass
+                        optimizer.step()                  # update weights
+
+                        writer.add_scalar('Loss/train', loss.item(), epoch * iterations + i)   # logging
+                    pbar.update(1)   # update progress bar
+            writer.flush()
+            print('TRAINING DONE')
+
+            # partial evaluation
+            print('\nEvaluating...')
+            nets[e].eval()
+            with torch.no_grad():
+                correct = 0
+                total = 0
+                for data in test_dataloader:
                     inputs, labels = data[0].to(DEVICE), data[1].to(DEVICE)
 
-                    # training
-                    optimizer.zero_grad()             # zero the gradients
-                    outputs = model(inputs)           # forward pass
-                    loss = loss_fn(outputs, labels)   # loss
-                    loss.backward()                   # backward pass
-                    optimizer.step()                  # update weights
+                    outputs = nets[e](inputs)
+                    _, predicted = torch.max(outputs.data, 1)
 
-                    # logging
-                    writer.add_scalar("Loss/train", loss.item(), epoch * iterations + i)
-                pbar.update(1)   # update progress bar
-        writer.flush()
-        print('TRAINING DONE')
+                    total += labels.size(0)
+                    correct += (predicted == labels).sum().item()
+                acc = 100 * correct / total
+                accuracy.append(acc)
+                print(f'Accuracy: {acc:.2f}%')
+            print('EVALUATION DONE')
 
-        # testing
-        print('\nTesting...')
-        model.eval()
+            # save model
+            print('\nSaving model...')
+            if not os.path.exists('output'):
+                os.makedirs('output')
+            if not os.path.exists('output/fold{}'.format(fold)):
+                os.makedirs('output/fold{}'.format(fold))
+            torch.save(nets[e].state_dict(), 'output/fold{}/model{}.pth'.format(fold, e + 1))
+            with open('output/fold{}/accuracy{}.txt'.format(fold, e + 1), 'w') as f:
+                f.write(str(acc))
+            print('MODEL SAVED')
+    
+        # ENSEMBLE (test with sum rule)
+        #print('\n### Ensemble ###')
+        for net in nets:
+            net.eval()
         with torch.no_grad():
-            correct = 0
-            total = 0
-            for data in test_dataloader:
-                # data
-                inputs, labels = data[0].to(DEVICE), data[1].to(DEVICE)
+            outputs = []
+            labels = []
+            for i in range(len(nets)):                                          # for each net
+                predict = []
+                for data in dataloader_test[i]:                                 # for each batch                                         
+                    inputs, lab = data[0].to(DEVICE), data[1].to(DEVICE)
+                    out = nets[i](inputs)
+                    predict.extend(out)
+                    if i == 0:
+                        labels.extend(lab)
+                outputs.append(predict)
+        
 
-                # testing
-                outputs = model(inputs)
-                _, predicted = torch.max(outputs.data, 1)
+        # majority voting
+        print('\n### Majority voting ###')
+        from collections import defaultdict
+        correct = 0
+        total = 0
+        for i in range(len(outputs[0])):                          # for each image
+            map = defaultdict()
+            for j in range(len(outputs)):                          # for each net 
+                predicted = torch.max(outputs[j][i], 0)
+                if predicted.indices.item() in map:
+                    map[predicted.indices.item()] = (map[predicted.indices.item()][0] + 1, max(map[predicted.indices.item()][1], predicted.values.item()))
+                else:
+                    map[predicted.indices.item()] = (1, predicted.values.item())            
 
-                # logging
-                total += labels.size(0)
-                correct += (predicted == labels).sum().item()
+            # sort by freq,prob
+            map = sorted(map.items(), key=lambda x: (x[1][0], x[1][1]), reverse=True)
 
-            print(f"Accuracy: {100 * correct / total}")
-        print('TESTING DONE')
+            #print("predicted: ", map[0][0], "  true: ", labels[i].item())
+            total += 1
+            correct += (map[0][0] == labels[i].item())
+        
+        acc = 100 * correct / total
+        print(f'Accuracy: {acc:.2f}%')
 
-    # save model
-    print('\nSaving model...')
-    if not os.path.exists('output'):
-        os.makedirs('output')
-    torch.save(model.state_dict(), 'output/model.pth')
-    print('MODEL SAVED')
 
-    # TODO: statistics
-    print('\nComputing statistics...')
-    print('STATISTICS DONE')
+        # ensemble
+        print('\n### Ensemble ###')
+        correct = 0
+        total = 0
+        for i in range(len(outputs[0])):
+            sum = torch.zeros(num_classes)
+            for j in range(len(outputs)):
+                for k in range(num_classes):
+                    sum[k] += outputs[j][i][k] * accuracy[j] / 100
+                if i in range(0, 0):
+                    pred = torch.max(outputs[j][i], 0)
+                    print("image",i,"true", labels[i].item() ,"  predicted ",pred.indices.item(),"  prob ",pred.values.item())
+            _, predicted = torch.max(sum.data, 0)
+            predicted = predicted.item()
+            total += 1
+            correct += (predicted == labels[i].item())
+        
+        acc = 100 * correct / total
+        print(f'Accuracy: {acc:.2f}%')
 
-    return
+
+        #enseble 2
+        print('\n### Ensemble 2 ###')
+        correct = 0
+        total = 0
+        for i in range(len(outputs[0])):
+            mean = torch.zeros(num_classes)
+            for k in range(num_classes):
+                for j in range(3):
+                    mean[k] += outputs[j][i][k]
+                mean[k] /= 3
+            
+            sum = torch.zeros(num_classes)
+            for k in range(num_classes):
+                sum[k] += outputs[3][i][k]
+                sum[k] += mean[k]
+
+            _, predicted = torch.max(sum.data, 0)
+            predicted = predicted.item()
+            total += 1
+            correct += (predicted == labels[i].item())
+        
+        acc = 100 * correct / total
+        print(f'Accuracy: {acc:.2f}%')            
 
 if __name__ == '__main__':
-    match DEBUG:
-        case 0:
-            main()
-        case 1:
-            test_global_features()
-        case 2:
-            test_local_features()
-        case 3:
-            test_gabor_features()
-        case 4:
-            test_dft()
-        
+    main()
