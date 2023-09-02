@@ -22,7 +22,7 @@ from torch.utils.tensorboard import SummaryWriter        # logging
 # scikit-image
 import skimage, skimage.io, skimage.transform, skimage.restoration, skimage.filters, skimage.exposure, skimage.color, skimage.feature
 
-PRE = 4
+PRE = 0
 DEBUG = 0
 DEVICE = (
     "cuda"
@@ -95,14 +95,21 @@ def test_gabor_features():
     x = io.loadmat('dataset/Datas_44.mat')['DATA'][0][0][0]
     for i in range(5):
         import skimage.transform
-        x[i] = skimage.transform.resize(x[i], (227, 227), anti_aliasing = True)
+        img = skimage.transform.resize(x[i], (227, 227), anti_aliasing = True)
 
         import skimage.color, skimage.filters
-        x[i] = skimage.color.rgb2gray(x[i])
-        real, img = skimage.filters.gabor(x[i], frequency = 0.6)
-        
-        real = real.astype(np.float64)
+        img = skimage.color.rgb2gray(img)
+        real, img = skimage.filters.gabor(img, frequency = 0.6)
+        real = real - np.min(real)
+        real = real / np.max(real)
+        real = real * 255
+        real = real.astype(np.uint8)
         real = np.repeat(real[:, :, np.newaxis], 3, axis = 2)
+        img = img - np.min(img)
+        img = img / np.max(img)
+        img = img * 255
+        img = img.astype(np.uint8)
+        img = np.repeat(img[:, :, np.newaxis], 3, axis = 2)
 
         import skimage.io
         skimage.io.imshow(real)
