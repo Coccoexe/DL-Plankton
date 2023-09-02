@@ -1,4 +1,4 @@
-AlexNet for Plankton classification
+## AlexNet for Plankton classification ##
 
 This is the code to train an AlexNet network modified to classify Plankton from a dataset of 3771 samples.
 The training is done with batch SGDM over a cross-validation of 2 fold.
@@ -22,7 +22,7 @@ Directory structure:
         old_code.py
 
 
-main.py explained
+## MAIN.PY ##
 
 ## CONSTANT ##
 
