@@ -21,9 +21,6 @@ Directory structure:
 -        main.py
 -        old_code.py
 
-
-## MAIN.PY ##
-
 ## CONSTANT ##
 
 - SKIP_PP     - skip the preprocessing (must be done at least one time to save pattern in ./skip/ folder)
