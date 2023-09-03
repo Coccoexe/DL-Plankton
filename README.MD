@@ -5,32 +5,32 @@ The training is done with batch SGDM over a cross-validation of 2 fold.
 
 Directory structure:
 
-./
-    assignment/
-        Initial code and assignment
-    dataset/
-        Datas_44.mat       Converted dataset to be compatible
-        Datas_44.mat.old   Original version of dataset, uncompatible with this python version
-    output/
-        models and accuracy saved to .pth and .txt files
-    runs/
-        file for tensorboard
-    skip/
-        preprocessed pattern saved to .pth files
-    src/
-        main.py
-        old_code.py
+- ./
+-    assignment/
+-        Initial code and assignment
+-    dataset/
+-        Datas_44.mat       Converted dataset to be compatible
+-        Datas_44.mat.old   Original version of dataset, uncompatible with this python version
+-    output/
+-        models and accuracy saved to .pth and .txt files
+-    runs/
+-        file for tensorboard
+-    skip/
+-        preprocessed pattern saved to .pth files
+-    src/
+-        main.py
+-        old_code.py
 
 
 ## MAIN.PY ##
 
 ## CONSTANT ##
 
-SKIP_PP     - skip the preprocessing (must be done at least one time to save pattern in ./skip/ folder)
+- SKIP_PP     - skip the preprocessing (must be done at least one time to save pattern in ./skip/ folder)
 
-SKIP_TR     - skip the training (must be done at least one time)
+- SKIP_TR     - skip the training (must be done at least one time)
 
-MODELS      - number of model to train, with 4 feature 4 models, note that lines 184-187 must be updated for more models
+- MODELS      - number of model to train, with 4 feature 4 models, note that lines 184-187 must be updated for more models
 
 ## PREPROCESSING ##
 
@@ -49,9 +49,9 @@ at line 297 evalaute the results of the training and save the model
 
 ## ENSEMBLE ##
 
-Ensemble 1 345-366
-Ensemble 2 370-387
-Ensemble 3 390-412
+- Ensemble 1 345-366
+- Ensemble 2 370-387
+- Ensemble 3 390-412
 
 ## REQUIREMENTS ##
 We used the code with:
