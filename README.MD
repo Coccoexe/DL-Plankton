@@ -52,3 +52,17 @@ at line 297 evalaute the results of the training and save the model
 Ensemble 1 345-366
 Ensemble 2 370-387
 Ensemble 3 390-412
+
+## REQUIREMENTS ##
+We used the code with:
+- Python 3.11.5
+- CUDA 12.1
+- PyTorch 2.0.1
+
+The following libraries are needed:
+- scipy
+- numpy
+- tqdm
+- torch
+- torchvision
+- skimage

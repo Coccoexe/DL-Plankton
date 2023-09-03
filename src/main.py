@@ -16,7 +16,6 @@ from torch.utils.data import DataLoader                  # dataloader for batche
 import torchvision.models as models                      # AlexNet
 from torchvision.models.alexnet import AlexNet_Weights   # AlexNet weights
 from torchvision.transforms import v2                    # transforms
-from PIL import Image                                    # images for transforms
 from torch.utils.tensorboard import SummaryWriter        # logging
 
 # scikit-image
