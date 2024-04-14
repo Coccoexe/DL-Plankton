@@ -24,7 +24,7 @@ Directory structure:
 -        old_code.py
 ```
 
-**CONSTANTS** \
+**CONSTANTS**
 - *SKIP_PP* : skip the preprocessing (must be done at least one time to save pattern in ./skip/ folder)
 - *SKIP_TR* : skip the training (must be done at least one time)
 - *MODELS*  : number of model to train, with 4 feature 4 models, note that lines 184-187 must be updated for more models
@@ -39,7 +39,7 @@ From line 266 to 324
 If SKIP_TR is set to true load the available result saved in /outputs/ and skip training
 At line 297 evalaute the results of the training and save the model
 
-**ENSEMBLE** \
+**ENSEMBLE**
 - Ensemble 1 345-366
 - Ensemble 2 370-387
 - Ensemble 3 390-412
@@ -50,7 +50,7 @@ We used the code with:
 - CUDA 12.1
 - PyTorch 2.0.1
 
-**LIBRARIES** \
+**LIBRARIES**
 - scipy
 - numpy
 - tqdm
